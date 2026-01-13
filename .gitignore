@@ -217,3 +217,5 @@ __marimo__/
 
 # cache
 __pycache__
+
+# sqlite db
