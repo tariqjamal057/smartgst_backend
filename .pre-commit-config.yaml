@@ -26,7 +26,7 @@ repos:
 
     -   id: bandit
         name: bandit
-        entry: poetry run bandit -r . -c pyproject.toml
+        entry: poetry run bandit -c pyproject.toml
         language: system
         types: [python]
         description: "Checks for security issues in Python code."

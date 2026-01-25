@@ -2,10 +2,16 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
+from pathlib import Path
+
+import environ
 
 
 def main():
     """Run administrative tasks."""
+    BASE_DIR = Path(__file__).resolve().parent
+    environ.Env.read_env(BASE_DIR / ".env")
+
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "smart_gst.settings")
     try:
         from django.core.management import execute_from_command_line
