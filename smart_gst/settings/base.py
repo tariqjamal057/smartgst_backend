@@ -36,6 +36,11 @@ ALLOWED_HOSTS = []
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+TENANT_MODEL = "tenants.Company"
+TENANT_DOMAIN_MODEL = "tenants.Domain"
+
+DATABASE_ROUTERS = ("django_tenants.routers.TenantSyncRouter",)
+
 AUTH_USER_MODEL = "core.User"
 
 REST_FRAMEWORK = {
@@ -53,21 +58,23 @@ SIMPLE_JWT = {
     "UPDATE_LAST_LOGIN": True,
 }
 
-# Application definition
-
-INSTALLED_APPS = [
-    "django.contrib.admin",
-    "django.contrib.auth",
-    "django.contrib.contenttypes",
-    "django.contrib.sessions",
-    "django.contrib.messages",
-    "django.contrib.staticfiles",
-    # Third-party apps
+# Define SHARED_APPS and TENANT_APPS
+SHARED_APPS = (
+    "django_tenants",
+    "tenants",
+    "core",
     "rest_framework",
     "corsheaders",
     "rest_framework_simplejwt",
-    # Local apps
-    "core",
+    "django.contrib.contenttypes",
+    "django.contrib.auth",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django.contrib.admin",
+)
+
+TENANT_APPS = (
     "accounting",
     "gst_engine",
     "gsp_integration",
@@ -78,9 +85,13 @@ INSTALLED_APPS = [
     "billing",
     "audit_logs",
     "smart_gst.api",
-]
+)
+
+INSTALLED_APPS = list(SHARED_APPS) + [app for app in TENANT_APPS if app not in SHARED_APPS]
+
 
 MIDDLEWARE = [
+    "django_tenants.middleware.main.TenantMainMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -114,7 +125,11 @@ WSGI_APPLICATION = "smart_gst.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 DATABASES = {
-    "default": dj_database_url.config(default=env("DATABASE_URL", default=None), conn_max_age=600)
+    "default": dj_database_url.config(
+        default=env("DATABASE_URL", default=None),
+        conn_max_age=600,
+        engine="django_tenants.postgresql_backend",
+    )
 }
 
 
