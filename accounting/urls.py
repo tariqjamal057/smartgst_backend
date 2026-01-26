@@ -1,12 +1,32 @@
-from django.urls import path, include
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-router = DefaultRouter()
-# Register viewsets for accounting app here, e.g.:
-# router.register(r'chartofaccounts', ChartOfAccountsViewSet)
-# router.register(r'vouchers', VoucherViewSet)
+from .views import (
+    AccountViewSet,
+    FinancialYearViewSet,
+    ItemViewSet,
+    JournalVoucherViewSet,
+    PartyViewSet,
+    PaymentVoucherViewSet,
+    PurchaseBillViewSet,
+    ReceiptVoucherViewSet,
+    SalesInvoiceViewSet,
+)
 
+# Create a router and register our viewsets with it.
+router = DefaultRouter()
+router.register(r"financial-years", FinancialYearViewSet)
+router.register(r"accounts", AccountViewSet)
+router.register(r"parties", PartyViewSet)
+router.register(r"items", ItemViewSet)
+router.register(r"sales-invoices", SalesInvoiceViewSet)
+router.register(r"purchase-bills", PurchaseBillViewSet)
+router.register(r"receipt-vouchers", ReceiptVoucherViewSet)
+router.register(r"payment-vouchers", PaymentVoucherViewSet)
+router.register(r"journal-vouchers", JournalVoucherViewSet)
+
+
+# The API URLs are now determined automatically by the router.
 urlpatterns = [
-    path('', include(router.urls)),
-    # Add other accounting app specific URLs here
+    path("", include(router.urls)),
 ]

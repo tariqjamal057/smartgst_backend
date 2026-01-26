@@ -1,4 +1,4 @@
-from .base import *
+from .base import *  # noqa: F403
 
 # Override base settings for development
 DEBUG = True
@@ -10,11 +10,9 @@ ALLOWED_HOSTS = ["*"]
 CORS_ALLOW_ALL_ORIGINS = True
 
 # Add development-specific apps
-INSTALLED_APPS += [
-    # e.g., 'debug_toolbar',
+INSTALLED_APPS += [  # noqa: F405
+    "drf_spectacular",
 ]
 
 # Add development-specific middleware
-MIDDLEWARE += [
-    # e.g., 'debug_toolbar.middleware.DebugToolbarMiddleware',
-]
+MIDDLEWARE += []  # noqa: F405

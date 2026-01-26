@@ -8,7 +8,7 @@ router = DefaultRouter()
 
 # The API URLs are now determined automatically by the router.
 urlpatterns = [
-    path("core/", include("core.urls")),
+    path("accounts/", include("core.urls")),
     path("accounting/", include("accounting.urls")),
     path("gst_engine/", include("gst_engine.urls")),
     path("gsp_integration/", include("gsp_integration.urls")),
