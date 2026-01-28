@@ -20,6 +20,10 @@ class Company(BaseModel, TenantMixin):
     # default true, schema will be automatically created and synced when it is saved
     auto_create_schema = True
 
+    def save(self, *args, **kwargs):
+        self.schema_name = self.subdomain_name
+        super().save(*args, **kwargs)
+
     class Meta:
         verbose_name_plural = "Companies"
 

@@ -39,6 +39,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 TENANT_MODEL = "tenants.Company"
 TENANT_DOMAIN_MODEL = "tenants.Domain"
 
+TENANT_DOMAIN_HOST = env("TENANT_DOMAIN_HOST", default="localhost")
+
 DATABASE_ROUTERS = ("django_tenants.routers.TenantSyncRouter",)
 
 AUTH_USER_MODEL = "core.User"
