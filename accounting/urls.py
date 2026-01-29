@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AccountViewSet,
     FinancialYearViewSet,
+    ItemCategoryViewSet,
     ItemViewSet,
     JournalVoucherViewSet,
     PartyViewSet,
@@ -19,6 +20,7 @@ router.register(r"financial-years", FinancialYearViewSet)
 router.register(r"accounts", AccountViewSet)
 router.register(r"parties", PartyViewSet)
 router.register(r"items", ItemViewSet)
+router.register(r"item-categories", ItemCategoryViewSet)
 router.register(r"sales-invoices", SalesInvoiceViewSet)
 router.register(r"purchase-bills", PurchaseBillViewSet)
 router.register(r"receipt-vouchers", ReceiptVoucherViewSet)

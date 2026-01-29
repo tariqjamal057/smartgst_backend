@@ -8,6 +8,7 @@ from .models import (
     Account,
     FinancialYear,
     Item,
+    ItemCategory,
     JournalVoucher,
     Party,
     PaymentVoucher,
@@ -18,6 +19,7 @@ from .models import (
 from .serializers import (
     AccountSerializer,
     FinancialYearSerializer,
+    ItemCategorySerializer,
     ItemSerializer,
     JournalVoucherSerializer,
     PartySerializer,
@@ -85,6 +87,13 @@ class PartyViewSet(viewsets.ModelViewSet):
 
     queryset = Party.objects.all()
     serializer_class = PartySerializer
+
+
+class ItemCategoryViewSet(viewsets.ModelViewSet):
+    """API endpoint that allows item categories to be viewed or edited."""
+
+    queryset = ItemCategory.objects.all()
+    serializer_class = ItemCategorySerializer
 
 
 class ItemViewSet(viewsets.ModelViewSet):

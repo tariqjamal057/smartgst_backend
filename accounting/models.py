@@ -52,14 +52,38 @@ class Party(BaseModel):
         CUSTOMER = "CUSTOMER", "Customer"
         VENDOR = "VENDOR", "Vendor"
 
+    class GSTRegistrationTypes(models.TextChoices):
+        UNREGISTERED = "UNREGISTERED", "Unregistered"
+        CONSUMER = "CONSUMER", "Consumer"
+        REGISTERED_BUSINESS_REGULAR = (
+            "REGISTERED_BUSINESS_REGULAR",
+            "Registered Business (Regular)",
+        )
+        REGISTERED_BUSINESS_COMPOSITION = (
+            "REGISTERED_BUSINESS_COMPOSITION",
+            "Registered Business (Composition)",
+        )
+
     name = models.CharField(max_length=100)
     party_type = models.CharField(max_length=10, choices=PartyType.choices)
+    phone = models.CharField(max_length=15, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
     gstin = models.CharField(max_length=15, blank=True)
+    gst_type = models.CharField(
+        max_length=50,
+        choices=GSTRegistrationTypes.choices,
+        blank=True,
+        default=GSTRegistrationTypes.UNREGISTERED,
+        null=True,
+    )
+    state = models.CharField(max_length=50, blank=True, null=True)
+    billing_address = models.TextField(blank=True, null=True)
+    shipping_address = models.TextField(blank=True, null=True)
     pan = models.CharField(max_length=10, blank=True)
-    address = models.TextField(blank=True)
     account = models.OneToOneField(
         Account, on_delete=models.SET_NULL, null=True, blank=True, related_name="party_account"
     )
+    custom_fieds = models.JSONField(blank=True, null=True)
 
     def __str__(self):
         return self.name
@@ -95,12 +119,81 @@ class Party(BaseModel):
         verbose_name_plural = "Parties"
 
 
+class ItemCategory(BaseModel):
+    """Represents a category for items."""
+
+    name = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name_plural = "Item Categories"
+
+
 class Item(BaseModel):
     """Represents a product or service."""
 
+    class PriceType(models.TextChoices):
+        WITH_TAX = "WITH_TAX", "With Tax"
+        WITHOUT_TAX = "WITHOUT_TAX", "Without Tax"
+
+    class DiscountType(models.TextChoices):
+        PERCENTAGE = "PERCENTAGE", "Percentage"
+        AMOUNT = "AMOUNT", "Amount"
+
+    class GSTType(models.TextChoices):
+        IGST = "IGST", "IGST"
+        GST = "GST", "GST"
+        EXEMPT = "EXEMPT", "Exempt"
+
     name = models.CharField(max_length=100, unique=True)
-    hsn_code = models.CharField(max_length=20, blank=True)
-    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    category = models.ForeignKey(
+        ItemCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="items"
+    )
+    hsn_code = models.CharField(max_length=20, blank=True, null=True)
+    primary_unit = models.CharField(max_length=50, blank=True, null=True)
+    secondary_unit = models.CharField(max_length=50, blank=True, null=True)
+    conversion_rates = models.JSONField(blank=True, null=True)
+    image = models.ImageField(upload_to="item_images/", blank=True, null=True)
+    code = models.CharField(max_length=50, blank=True, null=True)
+    mrp = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    sale_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    sale_price_type = models.CharField(
+        max_length=20,
+        choices=PriceType.choices,
+        default=PriceType.WITHOUT_TAX,
+        blank=True,
+        null=True,
+    )
+    discount_value = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    discount_value_type = models.CharField(
+        max_length=20,
+        choices=DiscountType.choices,
+        default=DiscountType.PERCENTAGE,
+        blank=True,
+        null=True,
+    )
+    wholesale_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    wholesale_price_type = models.CharField(
+        max_length=20, choices=PriceType.choices, blank=True, null=True
+    )
+    wholesale_purchase_qty = models.DecimalField(
+        max_digits=10, decimal_places=2, blank=True, null=True
+    )
+    purchase_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    purchase_price_type = models.CharField(
+        max_length=20, choices=PriceType.choices, blank=True, null=True
+    )
+    gst_value = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    gst_type = models.CharField(max_length=20, choices=GSTType.choices, blank=True, null=True)
+    opening_quantity = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    at_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    as_of_date = models.DateField(blank=True, null=True)
+    minimum_stock_to_maintain = models.DecimalField(
+        max_digits=10, decimal_places=2, blank=True, null=True
+    )
+    location = models.CharField(max_length=100, blank=True, null=True)
 
     def __str__(self):
         return self.name

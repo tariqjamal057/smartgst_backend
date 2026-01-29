@@ -4,6 +4,7 @@ from .models import (
     Account,
     FinancialYear,
     Item,
+    ItemCategory,
     JournalVoucher,
     JournalVoucherEntry,
     Party,
@@ -28,7 +29,23 @@ class PartySerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class ItemCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ItemCategory
+        fields = "__all__"
+
+
 class ItemSerializer(serializers.ModelSerializer):
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=ItemCategory.objects.all(), required=False, allow_null=True
+    )
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance.category:
+            representation["category"] = ItemCategorySerializer(instance.category).data
+        return representation
+
     class Meta:
         model = Item
         fields = "__all__"
