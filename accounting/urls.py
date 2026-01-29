@@ -12,6 +12,7 @@ from .views import (
     PurchaseBillViewSet,
     ReceiptVoucherViewSet,
     SalesInvoiceViewSet,
+    TransactionViewSet,
 )
 
 # Create a router and register our viewsets with it.
@@ -26,6 +27,7 @@ router.register(r"purchase-bills", PurchaseBillViewSet)
 router.register(r"receipt-vouchers", ReceiptVoucherViewSet)
 router.register(r"payment-vouchers", PaymentVoucherViewSet)
 router.register(r"journal-vouchers", JournalVoucherViewSet)
+router.register(r"transactions", TransactionViewSet)
 
 
 # The API URLs are now determined automatically by the router.

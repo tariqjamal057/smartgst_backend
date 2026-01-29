@@ -15,6 +15,7 @@ from .models import (
     PurchaseBill,
     ReceiptVoucher,
     SalesInvoice,
+    Transaction,
 )
 from .serializers import (
     AccountSerializer,
@@ -27,6 +28,7 @@ from .serializers import (
     PurchaseBillSerializer,
     ReceiptVoucherSerializer,
     SalesInvoiceSerializer,
+    TransactionSerializer,
 )
 
 
@@ -136,3 +138,10 @@ class JournalVoucherViewSet(BaseVoucherViewSet):
 
     queryset = JournalVoucher.objects.all()
     serializer_class = JournalVoucherSerializer
+
+
+class TransactionViewSet(viewsets.ModelViewSet):
+    """API endpoint that allows transactions to be viewed or edited."""
+
+    queryset = Transaction.objects.all()
+    serializer_class = TransactionSerializer

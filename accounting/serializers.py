@@ -14,6 +14,7 @@ from .models import (
     ReceiptVoucher,
     SalesInvoice,
     SalesInvoiceItem,
+    Transaction,
 )
 
 
@@ -61,7 +62,19 @@ class FinancialYearSerializer(serializers.ModelSerializer):
 class SalesInvoiceItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = SalesInvoiceItem
-        fields = ["item", "quantity", "rate", "amount"]
+        fields = [
+            "item",
+            "mrp",
+            "quantity",
+            "unit",
+            "price",
+            "price_type",
+            "discount_percentage",
+            "discount_amount",
+            "tax_type",
+            "tax_amount",
+            "amount",
+        ]
 
 
 class SalesInvoiceSerializer(serializers.ModelSerializer):
@@ -76,14 +89,66 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
         invoice = SalesInvoice.objects.create(**validated_data)
         for item_data in items_data:
             SalesInvoiceItem.objects.create(invoice=invoice, **item_data)
+
+        Transaction.objects.create(
+            party=invoice.party,
+            transaction_type=Transaction.TransactionTypeChoices.SALE,
+            recipet_no=invoice.bill_id or invoice.voucher_number,
+            date=invoice.bill_date or invoice.date,
+            payment_type=invoice.payment_type,
+            recieved_amount=invoice.paid,
+            attachment=None,
+        )
         return invoice
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop("items", None)
+
+        # Capture old values to check for changes
+        old_payment_type = instance.payment_type
+        old_paid = instance.paid
+
+        # Update invoice instance
+        instance = super().update(instance, validated_data)
+
+        if items_data is not None:
+            # Delete old items and create new ones
+            instance.items.all().delete()
+            for item_data in items_data:
+                SalesInvoiceItem.objects.create(invoice=instance, **item_data)
+
+        # Create transaction if payment details changed
+        if instance.payment_type != old_payment_type or instance.paid != old_paid:
+            Transaction.objects.create(
+                party=instance.party,
+                transaction_type=Transaction.TransactionTypeChoices.SALE,
+                recipet_no=instance.bill_id or instance.voucher_number,
+                date=instance.bill_date or instance.date,
+                payment_type=instance.payment_type,
+                recieved_amount=instance.paid,
+                attachment=None,
+            )
+
+        return instance
 
 
 # --- Purchase Bill Serializers ---
 class PurchaseBillItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseBillItem
-        fields = ["item", "quantity", "rate", "amount"]
+        fields = [
+            "item",
+            "mrp",
+            "quantity",
+            "unit",
+            "price",
+            "price_type",
+            "discount_percentage",
+            "discount_amount",
+            "tax_type",
+            "tax_amount",
+            "amount",
+        ]
 
 
 class PurchaseBillSerializer(serializers.ModelSerializer):
@@ -98,7 +163,47 @@ class PurchaseBillSerializer(serializers.ModelSerializer):
         bill = PurchaseBill.objects.create(**validated_data)
         for item_data in items_data:
             PurchaseBillItem.objects.create(bill=bill, **item_data)
+
+        Transaction.objects.create(
+            party=bill.party,
+            transaction_type=Transaction.TransactionTypeChoices.PURCHASE,
+            recipet_no=bill.bill_id or bill.voucher_number,
+            date=bill.bill_date or bill.date,
+            payment_type=bill.payment_type,
+            recieved_amount=bill.paid,
+            attachment=None,
+        )
         return bill
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop("items", None)
+
+        # Capture old values to check for changes
+        old_payment_type = instance.payment_type
+        old_paid = instance.paid
+
+        # Update bill instance
+        instance = super().update(instance, validated_data)
+
+        if items_data is not None:
+            # Delete old items and create new ones
+            instance.items.all().delete()
+            for item_data in items_data:
+                PurchaseBillItem.objects.create(bill=instance, **item_data)
+
+        # Create transaction if payment details changed
+        if instance.payment_type != old_payment_type or instance.paid != old_paid:
+            Transaction.objects.create(
+                party=instance.party,
+                transaction_type=Transaction.TransactionTypeChoices.PURCHASE,
+                recipet_no=instance.bill_id or instance.voucher_number,
+                date=instance.bill_date or instance.date,
+                payment_type=instance.payment_type,
+                recieved_amount=instance.paid,
+                attachment=None,
+            )
+
+        return instance
 
 
 # --- Other Voucher Serializers ---
@@ -149,3 +254,9 @@ class JournalVoucherSerializer(serializers.ModelSerializer):
         for entry_data in entries_data:
             JournalVoucherEntry.objects.create(voucher=journal, **entry_data)
         return journal
+
+
+class TransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Transaction
+        fields = "__all__"

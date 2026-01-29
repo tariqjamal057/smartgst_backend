@@ -147,13 +147,24 @@ class Item(BaseModel):
         GST = "GST", "GST"
         EXEMPT = "EXEMPT", "Exempt"
 
+    class ItemUnitType(models.TextChoices):
+        NONE = "NONE", "None"
+        BOX = "BOX", "Box"
+        BAG = "BAG", "Bag"
+        BOTTLE = "BOTTLE", "Bottle"
+        BUNDLES = "BUNDLES", "Bundles"
+
     name = models.CharField(max_length=100, unique=True)
     category = models.ForeignKey(
         ItemCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="items"
     )
     hsn_code = models.CharField(max_length=20, blank=True, null=True)
-    primary_unit = models.CharField(max_length=50, blank=True, null=True)
-    secondary_unit = models.CharField(max_length=50, blank=True, null=True)
+    primary_unit = models.CharField(
+        choices=ItemUnitType.choices, default=ItemUnitType.NONE, blank=True, null=True
+    )
+    secondary_unit = models.CharField(
+        choices=ItemUnitType.choices, default=ItemUnitType.NONE, blank=True, null=True
+    )
     conversion_rates = models.JSONField(blank=True, null=True)
     image = models.ImageField(upload_to="item_images/", blank=True, null=True)
     code = models.CharField(max_length=50, blank=True, null=True)
@@ -217,45 +228,142 @@ class BaseVoucher(BaseModel):
 
 
 class SalesInvoice(BaseVoucher):
-    customer = models.ForeignKey(
-        Party, on_delete=models.PROTECT, limit_choices_to={"party_type": "CUSTOMER"}
+    party = models.ForeignKey(
+        Party, on_delete=models.PROTECT, null=True, blank=True, related_name="sales_invoices"
     )
+    bill_id = models.CharField(max_length=50, blank=True, null=True)
+    bill_date = models.DateField(blank=True, null=True)
+    state_of_supply = models.CharField(max_length=50, blank=True, null=True)
+    payment_type = models.JSONField(blank=True, null=True)
+    round_off_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    paid = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    balance = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    description = models.TextField(blank=True, null=True)
+    image = models.ImageField(upload_to="invoice/images/", blank=True, null=True)
+    documents = models.FileField(upload_to="invoice/documents/", blank=True, null=True)
 
     def __str__(self):
-        return f"Sales Invoice #{self.voucher_number}"
+        return f"Sales Invoice #{self.bill_id}"
 
 
 class SalesInvoiceItem(BaseModel):
+
     invoice = models.ForeignKey(SalesInvoice, on_delete=models.CASCADE, related_name="items")
     item = models.ForeignKey(Item, on_delete=models.PROTECT)
-    quantity = models.DecimalField(max_digits=10, decimal_places=2)
-    rate = models.DecimalField(max_digits=15, decimal_places=2)
-    amount = models.DecimalField(max_digits=15, decimal_places=2)  # quantity * rate
+    mrp = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    quantity = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00, null=True, blank=True
+    )
+    unit = models.CharField(
+        choices=Item.ItemUnitType.choices, default=Item.ItemUnitType.NONE, blank=True, null=True
+    )
+    price = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
+    )
+    price_type = models.CharField(
+        max_length=20,
+        choices=Item.PriceType.choices,
+        default=Item.PriceType.WITHOUT_TAX,
+        blank=True,
+        null=True,
+    )
+    discount_percentage = models.CharField(max_length=10, blank=True, null=True)
+    discount_amount = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
+    )
+    tax_type = models.JSONField(blank=True, null=True)
+    tax_amount = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
+    )
+    amount = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
+    )
 
     def __str__(self):
-        return f"{self.item.name} on Invoice #{self.invoice.voucher_number}"
+        return f"{self.item.name} on Invoice #{self.invoice.bill_id}"
 
 
 class PurchaseBill(BaseVoucher):
-    vendor = models.ForeignKey(
-        Party, on_delete=models.PROTECT, limit_choices_to={"party_type": "VENDOR"}
+    party = models.ForeignKey(
+        Party, on_delete=models.PROTECT, null=True, blank=True, related_name="purchase_bills"
     )
+    bill_id = models.CharField(max_length=50, blank=True, null=True)
+    bill_date = models.DateField(blank=True, null=True)
+    state_of_supply = models.CharField(max_length=50, blank=True, null=True)
+    payment_type = models.JSONField(blank=True, null=True)
+    round_off_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    paid = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    balance = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    description = models.TextField(blank=True, null=True)
+    image = models.ImageField(upload_to="purchase/images/", blank=True, null=True)
+    documents = models.FileField(upload_to="purchase/documents/", blank=True, null=True)
 
     def __str__(self):
-        return f"Purchase Bill #{self.voucher_number}"
+        return f"Purchase Bill #{self.bill_id}"
 
 
 class PurchaseBillItem(BaseModel):
     bill = models.ForeignKey(PurchaseBill, on_delete=models.CASCADE, related_name="items")
     item = models.ForeignKey(Item, on_delete=models.PROTECT)
-    quantity = models.DecimalField(max_digits=10, decimal_places=2)
-    rate = models.DecimalField(max_digits=15, decimal_places=2)
-    amount = models.DecimalField(max_digits=15, decimal_places=2)  # quantity * rate
+    mrp = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    quantity = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00, null=True, blank=True
+    )
+    unit = models.CharField(
+        choices=Item.ItemUnitType.choices, default=Item.ItemUnitType.NONE, blank=True, null=True
+    )
+    price = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
+    )
+    price_type = models.CharField(
+        max_length=20,
+        choices=Item.PriceType.choices,
+        default=Item.PriceType.WITHOUT_TAX,
+        blank=True,
+        null=True,
+    )
+    discount_percentage = models.CharField(max_length=10, blank=True, null=True)
+    discount_amount = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
+    )
+    tax_type = models.JSONField(blank=True, null=True)
+    tax_amount = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
+    )
+    amount = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
+    )
 
     def __str__(self):
-        return f"{self.item.name} on Bill #{self.bill.voucher_number}"
+        return f"{self.item.name} on Bill #{self.bill.bill_id}"
+
+
+class Transaction(BaseModel):
+
+    class TransactionTypeChoices(models.TextChoices):
+        SALE = "SALE", "Sale"
+        LITE_SALE = "LITE_SALE", "Lite Sale"
+        SALE_E_INVOICE = "SALE_E_INVOICE", "Sale E-Invoice"
+        PURCHASE = "PURCHASE", "Purchase"
+        PURCHASE_E_INVOICE = "PURCHASE_E_INVOICE", "Purchase E-Invoice"
+        CREDIT_NOTE = "CREDIT_NOTE", "Credit Note"
+        DEBIT_NOTE = "DEBIT_NOTE", "Debit Note"
+        SALE_ORDER = "SALE_ORDER", "Sale Order"
+        PURCHASE_ORDER = "PURCHASE_ORDER", "Purchase Order"
+        PAYMENT_IN = "PAYMENT_IN", "Payment In"
+        PAYMENT_OUT = "PAYMENT_OUT", "Payment Out"
+
+    party = models.ForeignKey(Party, on_delete=models.PROTECT)
+    transaction_type = models.CharField(
+        max_length=50, choices=TransactionTypeChoices.choices, null=True, blank=True
+    )
+    recipet_no = models.CharField(max_length=50)
+    date = models.DateField()
+    payment_type = models.JSONField(blank=True, null=True)
+    recieved_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    attachment = models.FileField(upload_to="transaction/documents/", blank=True, null=True)
 
 
 class ReceiptVoucher(BaseVoucher):
