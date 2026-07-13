@@ -5,6 +5,23 @@ from django.db import models
 from core.models import BaseModel, TenantAwareModel
 
 
+class CompanySetting(TenantAwareModel):
+    company_name = models.CharField(max_length=200)
+    gstin = models.CharField(max_length=15, blank=True)
+    address = models.TextField(blank=True)
+    state = models.CharField(max_length=50, blank=True)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=15, blank=True)
+    financial_year = models.CharField(max_length=20, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name_plural = "Company Settings"
+
+    def __str__(self):
+        return self.company_name
+
+
 class InvoiceSetting(TenantAwareModel):
     class VoucherType(models.TextChoices):
         SALES = "SALES", "Sales"

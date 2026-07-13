@@ -3,6 +3,7 @@ from rest_framework import serializers
 from .models import (
     Account,
     BankReconciliation,
+    CompanySetting,
     ContraVoucher,
     CreditNote,
     CreditNoteItem,
@@ -34,6 +35,12 @@ from .models import (
     SalesInvoiceItem,
     Transaction,
 )
+
+
+class CompanySettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompanySetting
+        fields = "__all__"
 
 
 class AccountSerializer(serializers.ModelSerializer):

@@ -3,19 +3,26 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     AccountViewSet,
+    BalanceSheetViewSet,
     BankReconciliationViewSet,
+    CashFlowViewSet,
+    CompanySettingViewSet,
     ContraVoucherViewSet,
     CreditNoteViewSet,
+    DashboardSummaryViewSet,
     DebitNoteViewSet,
     DeliveryChallanViewSet,
     DocumentViewSet,
     FinancialYearViewSet,
+    GstLookupViewSet,
     InvoiceSettingViewSet,
     ItemCategoryViewSet,
     ItemViewSet,
     JournalVoucherViewSet,
+    LedgerViewSet,
     PartyViewSet,
     PaymentVoucherViewSet,
+    ProfitLossViewSet,
     PurchaseBillViewSet,
     PurchaseOrderViewSet,
     PurchaseReturnViewSet,
@@ -24,6 +31,7 @@ from .views import (
     SaleReturnViewSet,
     SalesInvoiceViewSet,
     TransactionViewSet,
+    TrialBalanceViewSet,
 )
 
 router = DefaultRouter()
@@ -49,6 +57,14 @@ router.register(r"documents", DocumentViewSet)
 router.register(r"sale-returns", SaleReturnViewSet)
 router.register(r"purchase-returns", PurchaseReturnViewSet)
 router.register(r"bank-reconciliations", BankReconciliationViewSet)
+router.register(r"company-settings", CompanySettingViewSet)
+router.register(r"dashboard/summary", DashboardSummaryViewSet, basename="dashboard-summary")
+router.register(r"reports/trial-balance", TrialBalanceViewSet, basename="trial-balance")
+router.register(r"reports/profit-loss", ProfitLossViewSet, basename="profit-loss")
+router.register(r"reports/balance-sheet", BalanceSheetViewSet, basename="balance-sheet")
+router.register(r"reports/cash-flow", CashFlowViewSet, basename="cash-flow")
+router.register(r"gst", GstLookupViewSet, basename="gst-lookup")
+router.register(r"ledger", LedgerViewSet, basename="ledger")
 
 urlpatterns = [
     path("", include(router.urls)),

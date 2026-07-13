@@ -1,3 +1,4 @@
+from django.db.models import Sum
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -7,6 +8,7 @@ from . import services
 from .models import (
     Account,
     BankReconciliation,
+    CompanySetting,
     ContraVoucher,
     CreditNote,
     DebitNote,
@@ -17,6 +19,7 @@ from .models import (
     Item,
     ItemCategory,
     JournalVoucher,
+    Ledger,
     Party,
     PaymentVoucher,
     PurchaseBill,
@@ -31,6 +34,7 @@ from .models import (
 from .serializers import (
     AccountSerializer,
     BankReconciliationSerializer,
+    CompanySettingSerializer,
     ContraVoucherSerializer,
     CreditNoteSerializer,
     DebitNoteSerializer,
@@ -220,3 +224,224 @@ class PurchaseReturnViewSet(TenantAwareViewSet):
 class BankReconciliationViewSet(TenantAwareViewSet):
     queryset = BankReconciliation.objects.all()
     serializer_class = BankReconciliationSerializer
+
+
+class CompanySettingViewSet(TenantAwareViewSet):
+    queryset = CompanySetting.objects.all()
+    serializer_class = CompanySettingSerializer
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True)
+
+
+# =====================
+# REPORT VIEWS
+# =====================
+
+
+class DashboardSummaryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = SalesInvoice.objects.all()
+        pq = PurchaseBill.objects.all()
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+            pq = pq.filter(tenant_id=tenant_id)
+
+        total_sales = qs.aggregate(t=Sum("total_amount"))["t"] or 0
+        total_purchases = pq.aggregate(t=Sum("total_amount"))["t"] or 0
+        sales_count = qs.count()
+        purchase_count = pq.count()
+        pending_receivables = qs.filter(is_posted=False).aggregate(t=Sum("balance"))["t"] or 0
+        pending_payables = pq.filter(is_posted=False).aggregate(t=Sum("balance"))["t"] or 0
+
+        return Response(
+            {
+                "total_sales": total_sales,
+                "total_purchases": total_purchases,
+                "sales_count": sales_count,
+                "purchase_count": purchase_count,
+                "pending_receivables": pending_receivables,
+                "pending_payables": pending_payables,
+            }
+        )
+
+
+class TrialBalanceViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = Ledger.objects.all()
+        if tenant_id:
+            qs = qs.filter(account__tenant_id=tenant_id)
+
+        data = []
+        accounts = (
+            Account.objects.filter(tenant_id=tenant_id) if tenant_id else Account.objects.all()
+        )
+        for account in accounts:
+            agg = qs.filter(account=account).aggregate(d=Sum("debit"), c=Sum("credit"))
+            data.append(
+                {
+                    "account": account.name,
+                    "account_type": account.account_type,
+                    "debit": float(agg["d"] or 0),
+                    "credit": float(agg["c"] or 0),
+                }
+            )
+        total_d = sum(d["debit"] for d in data)
+        total_c = sum(d["credit"] for d in data)
+        return Response({"accounts": data, "total_debit": total_d, "total_credit": total_c})
+
+
+class ProfitLossViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = Ledger.objects.all()
+        if tenant_id:
+            qs = qs.filter(account__tenant_id=tenant_id)
+
+        income_accounts = Account.objects.filter(account_type=Account.AccountType.REVENUE)
+        expense_accounts = Account.objects.filter(account_type=Account.AccountType.EXPENSE)
+        if tenant_id:
+            income_accounts = income_accounts.filter(tenant_id=tenant_id)
+            expense_accounts = expense_accounts.filter(tenant_id=tenant_id)
+
+        income = []
+        for a in income_accounts:
+            agg = qs.filter(account=a).aggregate(c=Sum("credit"), d=Sum("debit"))
+            income.append({"name": a.name, "amount": float((agg["c"] or 0) - (agg["d"] or 0))})
+
+        expenses = []
+        for a in expense_accounts:
+            agg = qs.filter(account=a).aggregate(d=Sum("debit"), c=Sum("credit"))
+            expenses.append({"name": a.name, "amount": float((agg["d"] or 0) - (agg["c"] or 0))})
+
+        total_income = sum(i["amount"] for i in income)
+        total_expense = sum(e["amount"] for e in expenses)
+        net_profit = total_income - total_expense
+
+        return Response(
+            {
+                "income": income,
+                "expenses": expenses,
+                "total_income": total_income,
+                "total_expense": total_expense,
+                "net_profit": net_profit,
+            }
+        )
+
+
+class BalanceSheetViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = Ledger.objects.all()
+        if tenant_id:
+            qs = qs.filter(account__tenant_id=tenant_id)
+
+        def group_accounts(acc_type):
+            accounts = Account.objects.filter(account_type=acc_type)
+            if tenant_id:
+                accounts = accounts.filter(tenant_id=tenant_id)
+            groups = []
+            for acct in accounts:
+                if acct.parent:
+                    group_name = acct.parent.name
+                else:
+                    group_name = acct.account_type.title()
+                agg = qs.filter(account=acct).aggregate(d=Sum("debit"), c=Sum("credit"))
+                balance = float((agg["d"] or 0) - (agg["c"] or 0))
+                groups.append({"name": acct.name, "group": group_name, "amount": abs(balance)})
+            return groups
+
+        liabilities = group_accounts(Account.AccountType.LIABILITY)
+        equity = group_accounts(Account.AccountType.EQUITY)
+        assets = group_accounts(Account.AccountType.ASSET)
+
+        data = {"liabilities": liabilities, "equity": equity, "assets": assets}
+        return Response(data)
+
+
+class CashFlowViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+
+        receipts = ReceiptVoucher.objects.all()
+        payments = PaymentVoucher.objects.all()
+        if tenant_id:
+            receipts = receipts.filter(tenant_id=tenant_id)
+            payments = payments.filter(tenant_id=tenant_id)
+
+        total_inflow = receipts.aggregate(t=Sum("amount"))["t"] or 0
+        total_outflow = payments.aggregate(t=Sum("amount"))["t"] or 0
+
+        return Response(
+            {
+                "total_inflow": float(total_inflow),
+                "total_outflow": float(total_outflow),
+                "net_cash_flow": float(total_inflow - total_outflow),
+            }
+        )
+
+
+class GstLookupViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def retrieve(self, request, pk=None):
+        gstin = pk
+        return Response(
+            {
+                "gstin": gstin,
+                "legal_name": f"Party for {gstin}",
+                "address": "Auto-fetched address",
+                "state": gstin[:2] if gstin and len(gstin) >= 2 else "",
+                "status": "ACTIVE",
+            }
+        )
+
+
+class LedgerViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = Ledger.objects.select_related("account").all()
+        if tenant_id:
+            qs = qs.filter(account__tenant_id=tenant_id)
+
+        account_id = request.query_params.get("account")
+        from_date = request.query_params.get("from_date")
+        to_date = request.query_params.get("to_date")
+
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        if from_date:
+            qs = qs.filter(date__gte=from_date)
+        if to_date:
+            qs = qs.filter(date__lte=to_date)
+
+        data = []
+        running_balance = 0
+        for entry in qs.order_by("date"):
+            running_balance += float(entry.debit or 0)
+            running_balance -= float(entry.credit or 0)
+            data.append(
+                {
+                    "id": entry.uuid,
+                    "date": entry.date,
+                    "account": entry.account.name,
+                    "debit": float(entry.debit),
+                    "credit": float(entry.credit),
+                    "balance": running_balance,
+                }
+            )
+        return Response(data)

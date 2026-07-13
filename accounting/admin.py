@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     Account,
     BankReconciliation,
+    CompanySetting,
     ContraVoucher,
     CreditNote,
     CreditNoteItem,
@@ -40,6 +41,11 @@ from .models import (
 @admin.register(InvoiceSetting)
 class InvoiceSettingAdmin(admin.ModelAdmin):
     list_display = ["voucher_type", "prefix", "next_number", "is_active"]
+
+
+@admin.register(CompanySetting)
+class CompanySettingAdmin(admin.ModelAdmin):
+    list_display = ["company_name", "gstin", "state", "email", "is_active"]
 
 
 @admin.register(FinancialYear)
