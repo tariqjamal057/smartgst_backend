@@ -14,6 +14,13 @@ class BaseModel(models.Model):
         abstract = True
 
 
+class TenantAwareModel(BaseModel):
+    tenant = models.ForeignKey("tenants.Tenant", on_delete=models.CASCADE, null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:

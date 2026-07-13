@@ -36,48 +36,38 @@ ALLOWED_HOSTS = []
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-TENANT_MODEL = "tenants.Company"
-TENANT_DOMAIN_MODEL = "tenants.Domain"
-
-TENANT_DOMAIN_HOST = env("TENANT_DOMAIN_HOST", default="localhost")
-
-DATABASE_ROUTERS = ("django_tenants.routers.TenantSyncRouter",)
-
 AUTH_USER_MODEL = "core.User"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_PAGINATION_CLASS": "smart_gst.api.pagination.StandardResultsSetPagination",
+    "PAGE_SIZE": 100,
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/hour",
+        "user": "1000/hour",
+    },
 }
 
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=24),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
 }
 
-# Define SHARED_APPS and TENANT_APPS
-SHARED_APPS = (
-    "django_tenants",
+INSTALLED_APPS = [
     "tenants",
     "core",
-    "rest_framework",
-    "corsheaders",
-    "rest_framework_simplejwt",
-    "django.contrib.contenttypes",
-    "django.contrib.auth",
-    "django.contrib.sessions",
-    "django.contrib.messages",
-    "django.contrib.staticfiles",
-    "django.contrib.admin",
-)
-
-TENANT_APPS = (
     "accounting",
     "gst_engine",
     "gsp_integration",
@@ -88,16 +78,22 @@ TENANT_APPS = (
     "billing",
     "audit_logs",
     "smart_gst.api",
-)
-
-INSTALLED_APPS = list(SHARED_APPS) + [app for app in TENANT_APPS if app not in SHARED_APPS]
+    "rest_framework",
+    "corsheaders",
+    "rest_framework_simplejwt",
+    "django.contrib.contenttypes",
+    "django.contrib.auth",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django.contrib.admin",
+]
 
 
 MIDDLEWARE = [
-    "django_tenants.middleware.main.TenantMainMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -131,7 +127,6 @@ DATABASES = {
     "default": dj_database_url.config(
         default=env("DATABASE_URL", default=None),
         conn_max_age=600,
-        engine="django_tenants.postgresql_backend",
     )
 }
 
@@ -171,6 +166,31 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+}
 
 # Celery Configuration Options
 CELERY_BROKER_URL = env("REDIS_URL", default="redis://localhost:6379/0")

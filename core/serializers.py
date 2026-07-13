@@ -1,3 +1,5 @@
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from rest_framework import serializers
 
 from .models import User
@@ -45,9 +47,14 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if attrs["password"] != attrs["password2"]:
             raise serializers.ValidationError({"password": "Password fields didn't match."})
+        try:
+            validate_password(attrs["password"])
+        except ValidationError as e:
+            raise serializers.ValidationError({"password": list(e.messages)})
         return attrs
 
     def create(self, validated_data):
+        validated_data.pop("password2")
         user = User.objects.create_user(
             email=validated_data["email"],
             first_name=validated_data["first_name"],

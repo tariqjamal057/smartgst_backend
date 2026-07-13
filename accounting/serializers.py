@@ -2,7 +2,17 @@ from rest_framework import serializers
 
 from .models import (
     Account,
+    BankReconciliation,
+    ContraVoucher,
+    CreditNote,
+    CreditNoteItem,
+    DebitNote,
+    DebitNoteItem,
+    DeliveryChallan,
+    DeliveryChallanItem,
+    Document,
     FinancialYear,
+    InvoiceSetting,
     Item,
     ItemCategory,
     JournalVoucher,
@@ -11,7 +21,15 @@ from .models import (
     PaymentVoucher,
     PurchaseBill,
     PurchaseBillItem,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    PurchaseReturn,
+    PurchaseReturnItem,
     ReceiptVoucher,
+    SaleOrder,
+    SaleOrderItem,
+    SaleReturn,
+    SaleReturnItem,
     SalesInvoice,
     SalesInvoiceItem,
     Transaction,
@@ -71,8 +89,12 @@ class SalesInvoiceItemSerializer(serializers.ModelSerializer):
             "price_type",
             "discount_percentage",
             "discount_amount",
-            "tax_type",
-            "tax_amount",
+            "taxable_value",
+            "gst_rate",
+            "cgst",
+            "sgst",
+            "igst",
+            "cess",
             "amount",
         ]
 
@@ -92,42 +114,23 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
 
         Transaction.objects.create(
             party=invoice.party,
+            voucher_type="SALES",
             transaction_type=Transaction.TransactionTypeChoices.SALE,
-            recipet_no=invoice.bill_id or invoice.voucher_number,
+            receipt_no=invoice.bill_id or invoice.voucher_number,
             date=invoice.bill_date or invoice.date,
             payment_type=invoice.payment_type,
-            recieved_amount=invoice.paid,
-            attachment=None,
+            received_amount=invoice.paid,
         )
         return invoice
 
     def update(self, instance, validated_data):
         items_data = validated_data.pop("items", None)
-
-        # Capture old values to check for changes
-        old_payment_type = instance.payment_type
-        old_paid = instance.paid
-
-        # Update invoice instance
         instance = super().update(instance, validated_data)
 
         if items_data is not None:
-            # Delete old items and create new ones
             instance.items.all().delete()
             for item_data in items_data:
                 SalesInvoiceItem.objects.create(invoice=instance, **item_data)
-
-        # Create transaction if payment details changed
-        if instance.payment_type != old_payment_type or instance.paid != old_paid:
-            Transaction.objects.create(
-                party=instance.party,
-                transaction_type=Transaction.TransactionTypeChoices.SALE,
-                recipet_no=instance.bill_id or instance.voucher_number,
-                date=instance.bill_date or instance.date,
-                payment_type=instance.payment_type,
-                recieved_amount=instance.paid,
-                attachment=None,
-            )
 
         return instance
 
@@ -145,8 +148,12 @@ class PurchaseBillItemSerializer(serializers.ModelSerializer):
             "price_type",
             "discount_percentage",
             "discount_amount",
-            "tax_type",
-            "tax_amount",
+            "taxable_value",
+            "gst_rate",
+            "cgst",
+            "sgst",
+            "igst",
+            "cess",
             "amount",
         ]
 
@@ -166,42 +173,23 @@ class PurchaseBillSerializer(serializers.ModelSerializer):
 
         Transaction.objects.create(
             party=bill.party,
+            voucher_type="PURCHASE",
             transaction_type=Transaction.TransactionTypeChoices.PURCHASE,
-            recipet_no=bill.bill_id or bill.voucher_number,
+            receipt_no=bill.bill_id or bill.voucher_number,
             date=bill.bill_date or bill.date,
             payment_type=bill.payment_type,
-            recieved_amount=bill.paid,
-            attachment=None,
+            paid_amount=bill.paid,
         )
         return bill
 
     def update(self, instance, validated_data):
         items_data = validated_data.pop("items", None)
-
-        # Capture old values to check for changes
-        old_payment_type = instance.payment_type
-        old_paid = instance.paid
-
-        # Update bill instance
         instance = super().update(instance, validated_data)
 
         if items_data is not None:
-            # Delete old items and create new ones
             instance.items.all().delete()
             for item_data in items_data:
                 PurchaseBillItem.objects.create(bill=instance, **item_data)
-
-        # Create transaction if payment details changed
-        if instance.payment_type != old_payment_type or instance.paid != old_paid:
-            Transaction.objects.create(
-                party=instance.party,
-                transaction_type=Transaction.TransactionTypeChoices.PURCHASE,
-                recipet_no=instance.bill_id or instance.voucher_number,
-                date=instance.bill_date or instance.date,
-                payment_type=instance.payment_type,
-                recieved_amount=instance.paid,
-                attachment=None,
-            )
 
         return instance
 
@@ -259,4 +247,248 @@ class JournalVoucherSerializer(serializers.ModelSerializer):
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
+        fields = "__all__"
+
+
+class InvoiceSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvoiceSetting
+        fields = "__all__"
+
+
+# --- Sale Order ---
+class SaleOrderItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SaleOrderItem
+        fields = "__all__"
+
+
+class SaleOrderSerializer(serializers.ModelSerializer):
+    items = SaleOrderItemSerializer(many=True)
+
+    class Meta:
+        model = SaleOrder
+        fields = "__all__"
+
+    def create(self, validated_data):
+        items_data = validated_data.pop("items")
+        order = SaleOrder.objects.create(**validated_data)
+        for item_data in items_data:
+            SaleOrderItem.objects.create(order=order, **item_data)
+        return order
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop("items", None)
+        instance = super().update(instance, validated_data)
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                SaleOrderItem.objects.create(order=instance, **item_data)
+        return instance
+
+
+# --- Purchase Order ---
+class PurchaseOrderItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PurchaseOrderItem
+        fields = "__all__"
+
+
+class PurchaseOrderSerializer(serializers.ModelSerializer):
+    items = PurchaseOrderItemSerializer(many=True)
+
+    class Meta:
+        model = PurchaseOrder
+        fields = "__all__"
+
+    def create(self, validated_data):
+        items_data = validated_data.pop("items")
+        order = PurchaseOrder.objects.create(**validated_data)
+        for item_data in items_data:
+            PurchaseOrderItem.objects.create(order=order, **item_data)
+        return order
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop("items", None)
+        instance = super().update(instance, validated_data)
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                PurchaseOrderItem.objects.create(order=instance, **item_data)
+        return instance
+
+
+# --- Delivery Challan ---
+class DeliveryChallanItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeliveryChallanItem
+        fields = "__all__"
+
+
+class DeliveryChallanSerializer(serializers.ModelSerializer):
+    items = DeliveryChallanItemSerializer(many=True)
+
+    class Meta:
+        model = DeliveryChallan
+        fields = "__all__"
+
+    def create(self, validated_data):
+        items_data = validated_data.pop("items")
+        challan = DeliveryChallan.objects.create(**validated_data)
+        for item_data in items_data:
+            DeliveryChallanItem.objects.create(challan=challan, **item_data)
+        return challan
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop("items", None)
+        instance = super().update(instance, validated_data)
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                DeliveryChallanItem.objects.create(challan=instance, **item_data)
+        return instance
+
+
+# --- Contra Voucher ---
+class ContraVoucherSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContraVoucher
+        fields = "__all__"
+
+
+# --- Credit Note ---
+class CreditNoteItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CreditNoteItem
+        fields = "__all__"
+
+
+class CreditNoteSerializer(serializers.ModelSerializer):
+    items = CreditNoteItemSerializer(many=True)
+
+    class Meta:
+        model = CreditNote
+        fields = "__all__"
+
+    def create(self, validated_data):
+        items_data = validated_data.pop("items")
+        note = CreditNote.objects.create(**validated_data)
+        for item_data in items_data:
+            CreditNoteItem.objects.create(credit_note=note, **item_data)
+        return note
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop("items", None)
+        instance = super().update(instance, validated_data)
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                CreditNoteItem.objects.create(credit_note=instance, **item_data)
+        return instance
+
+
+# --- Debit Note ---
+class DebitNoteItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DebitNoteItem
+        fields = "__all__"
+
+
+class DebitNoteSerializer(serializers.ModelSerializer):
+    items = DebitNoteItemSerializer(many=True)
+
+    class Meta:
+        model = DebitNote
+        fields = "__all__"
+
+    def create(self, validated_data):
+        items_data = validated_data.pop("items")
+        note = DebitNote.objects.create(**validated_data)
+        for item_data in items_data:
+            DebitNoteItem.objects.create(debit_note=note, **item_data)
+        return note
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop("items", None)
+        instance = super().update(instance, validated_data)
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                DebitNoteItem.objects.create(debit_note=instance, **item_data)
+        return instance
+
+
+# --- Document ---
+class DocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Document
+        fields = "__all__"
+
+
+# --- Sale Return ---
+class SaleReturnItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SaleReturnItem
+        fields = "__all__"
+
+
+class SaleReturnSerializer(serializers.ModelSerializer):
+    items = SaleReturnItemSerializer(many=True)
+
+    class Meta:
+        model = SaleReturn
+        fields = "__all__"
+
+    def create(self, validated_data):
+        items_data = validated_data.pop("items")
+        obj = SaleReturn.objects.create(**validated_data)
+        for item_data in items_data:
+            SaleReturnItem.objects.create(sale_return=obj, **item_data)
+        return obj
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop("items", None)
+        instance = super().update(instance, validated_data)
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                SaleReturnItem.objects.create(sale_return=instance, **item_data)
+        return instance
+
+
+# --- Purchase Return ---
+class PurchaseReturnItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PurchaseReturnItem
+        fields = "__all__"
+
+
+class PurchaseReturnSerializer(serializers.ModelSerializer):
+    items = PurchaseReturnItemSerializer(many=True)
+
+    class Meta:
+        model = PurchaseReturn
+        fields = "__all__"
+
+    def create(self, validated_data):
+        items_data = validated_data.pop("items")
+        obj = PurchaseReturn.objects.create(**validated_data)
+        for item_data in items_data:
+            PurchaseReturnItem.objects.create(purchase_return=obj, **item_data)
+        return obj
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop("items", None)
+        instance = super().update(instance, validated_data)
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                PurchaseReturnItem.objects.create(purchase_return=instance, **item_data)
+        return instance
+
+
+# --- Bank Reconciliation ---
+class BankReconciliationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BankReconciliation
         fields = "__all__"

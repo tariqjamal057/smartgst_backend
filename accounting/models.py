@@ -2,27 +2,53 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
-from core.models import BaseModel
+from core.models import BaseModel, TenantAwareModel
 
 
-class FinancialYear(BaseModel):
-    """Represents a financial year for a tenant to lock periods."""
+class InvoiceSetting(TenantAwareModel):
+    class VoucherType(models.TextChoices):
+        SALES = "SALES", "Sales"
+        PURCHASE = "PURCHASE", "Purchase"
+        PAYMENT = "PAYMENT", "Payment"
+        RECEIPT = "RECEIPT", "Receipt"
+        JOURNAL = "JOURNAL", "Journal"
+        CONTRA = "CONTRA", "Contra"
+        CREDIT_NOTE = "CREDIT_NOTE", "Credit Note"
+        DEBIT_NOTE = "DEBIT_NOTE", "Debit Note"
+        DELIVERY_CHALLAN = "DELIVERY_CHALLAN", "Delivery Challan"
+        SALE_ORDER = "SALE_ORDER", "Sale Order"
+        PURCHASE_ORDER = "PURCHASE_ORDER", "Purchase Order"
 
+    voucher_type = models.CharField(max_length=30, choices=VoucherType.choices, unique=True)
+    prefix = models.CharField(max_length=20, blank=True, default="")
+    suffix = models.CharField(max_length=20, blank=True, default="")
+    zero_padding = models.PositiveIntegerField(default=4)
+    next_number = models.PositiveIntegerField(default=1)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = [["tenant", "voucher_type"]]
+
+    def __str__(self):
+        number = f"{self.next_number:0{self.zero_padding}d}"
+        return f"{self.voucher_type} - {self.prefix}{number}{self.suffix}"
+
+
+class FinancialYear(TenantAwareModel):
     start_date = models.DateField()
     end_date = models.DateField()
     is_locked = models.BooleanField(default=False)
 
-    def __str__(self):
-        return f"{self.start_date.strftime('%Y-%m-%d')} to {self.end_date.strftime('%Y-%m-%d')}"
-
     class Meta:
         verbose_name_plural = "Financial Years"
         ordering = ["-start_date"]
+        unique_together = [["tenant", "start_date"]]
+
+    def __str__(self):
+        return f"{self.start_date} to {self.end_date}"
 
 
-class Account(BaseModel):
-    """Represents an account in the Chart of Accounts."""
-
+class Account(TenantAwareModel):
     class AccountType(models.TextChoices):
         ASSET = "ASSET", "Asset"
         LIABILITY = "LIABILITY", "Liability"
@@ -37,17 +63,15 @@ class Account(BaseModel):
     )
     is_default = models.BooleanField(default=False)
 
+    class Meta:
+        verbose_name_plural = "Chart of Accounts"
+        unique_together = [["tenant", "name"]]
+
     def __str__(self):
         return self.name
 
-    class Meta:
-        verbose_name_plural = "Chart of Accounts"
-        unique_together = ("name",)  # Unique per tenant
 
-
-class Party(BaseModel):
-    """Represents a customer, vendor, or other business party."""
-
+class Party(TenantAwareModel):
     class PartyType(models.TextChoices):
         CUSTOMER = "CUSTOMER", "Customer"
         VENDOR = "VENDOR", "Vendor"
@@ -83,7 +107,11 @@ class Party(BaseModel):
     account = models.OneToOneField(
         Account, on_delete=models.SET_NULL, null=True, blank=True, related_name="party_account"
     )
-    custom_fieds = models.JSONField(blank=True, null=True)
+    custom_fields = models.JSONField(blank=True, null=True)
+
+    class Meta:
+        verbose_name_plural = "Parties"
+        unique_together = [["tenant", "name", "party_type"]]
 
     def __str__(self):
         return self.name
@@ -92,48 +120,46 @@ class Party(BaseModel):
         is_new = self._state.adding
         super().save(*args, **kwargs)
         if is_new and not self.account:
-            # Determine the parent account (control account)
             if self.party_type == self.PartyType.CUSTOMER:
                 parent_account_name = "Sundry Debtors"
                 parent_account_type = Account.AccountType.ASSET
-            else:  # VENDOR
+            else:
                 parent_account_name = "Sundry Creditors"
                 parent_account_type = Account.AccountType.LIABILITY
 
-            # Get or create the parent control account
+            tenant_filter = {"tenant": self.tenant} if self.tenant_id else {}
             parent_account, _ = Account.objects.get_or_create(
                 name=parent_account_name,
-                defaults={"account_type": parent_account_type, "is_default": True},
+                defaults={
+                    "account_type": parent_account_type,
+                    "is_default": True,
+                    **tenant_filter,
+                },
+                **tenant_filter,
             )
-
-            # Create the account for the party
             party_account = Account.objects.create(
                 name=self.name,
                 account_type=parent_account.account_type,
                 parent=parent_account,
+                tenant=self.tenant,
             )
             self.account = party_account
             self.save(update_fields=["account"])
 
+
+class ItemCategory(TenantAwareModel):
+    name = models.CharField(max_length=100)
+    hsn_code = models.CharField(max_length=10, blank=True)
+
     class Meta:
-        verbose_name_plural = "Parties"
-
-
-class ItemCategory(BaseModel):
-    """Represents a category for items."""
-
-    name = models.CharField(max_length=100, unique=True)
+        verbose_name_plural = "Item Categories"
+        unique_together = [["tenant", "name"]]
 
     def __str__(self):
         return self.name
 
-    class Meta:
-        verbose_name_plural = "Item Categories"
 
-
-class Item(BaseModel):
-    """Represents a product or service."""
-
+class Item(TenantAwareModel):
     class PriceType(models.TextChoices):
         WITH_TAX = "WITH_TAX", "With Tax"
         WITHOUT_TAX = "WITHOUT_TAX", "Without Tax"
@@ -154,7 +180,7 @@ class Item(BaseModel):
         BOTTLE = "BOTTLE", "Bottle"
         BUNDLES = "BUNDLES", "Bundles"
 
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=100)
     category = models.ForeignKey(
         ItemCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="items"
     )
@@ -206,16 +232,15 @@ class Item(BaseModel):
     )
     location = models.CharField(max_length=100, blank=True, null=True)
 
+    class Meta:
+        verbose_name_plural = "Items"
+        unique_together = [["tenant", "name"]]
+
     def __str__(self):
         return self.name
 
-    class Meta:
-        verbose_name_plural = "Items"
 
-
-class BaseVoucher(BaseModel):
-    """Abstract base model for all vouchers."""
-
+class BaseVoucher(TenantAwareModel):
     financial_year = models.ForeignKey(FinancialYear, on_delete=models.PROTECT)
     voucher_number = models.CharField(max_length=50)
     date = models.DateField()
@@ -224,123 +249,287 @@ class BaseVoucher(BaseModel):
 
     class Meta:
         abstract = True
-        unique_together = ("financial_year", "voucher_number")
+
+
+class BaseOrder(TenantAwareModel):
+    class SupplyType(models.TextChoices):
+        REGULAR = "REGULAR", "Regular"
+        SEZ = "SEZ", "SEZ"
+        EXPORT = "EXPORT", "Export"
+
+    order_number = models.CharField(max_length=50)
+    date = models.DateField()
+    financial_year = models.ForeignKey(FinancialYear, on_delete=models.PROTECT)
+    party = models.ForeignKey(Party, on_delete=models.PROTECT, null=True, blank=True)
+    billing_address = models.TextField(blank=True)
+    shipping_address = models.TextField(blank=True)
+    state_of_supply = models.CharField(max_length=50, blank=True)
+    supply_type = models.CharField(
+        max_length=20, choices=SupplyType.choices, default=SupplyType.REGULAR
+    )
+    narration = models.TextField(blank=True)
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    round_off = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    is_converted = models.BooleanField(default=False)
+
+    class Meta:
+        abstract = True
+
+
+class SaleOrder(BaseOrder):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        CONFIRMED = "CONFIRMED", "Confirmed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    payment_terms = models.TextField(blank=True)
+    delivery_date = models.DateField(null=True, blank=True)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "order_number"]]
+
+    def __str__(self):
+        return f"Sale Order #{self.order_number}"
+
+
+class SaleOrderItem(BaseModel):
+    order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="items")
+    item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    unit = models.CharField(max_length=20, blank=True)
+    price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    discount_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    taxable_value = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+
+
+class PurchaseOrder(BaseOrder):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        CONFIRMED = "CONFIRMED", "Confirmed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    payment_terms = models.TextField(blank=True)
+    delivery_date = models.DateField(null=True, blank=True)
+    transporter_name = models.CharField(max_length=100, blank=True)
+    vehicle_no = models.CharField(max_length=50, blank=True)
+    lr_rr_no = models.CharField(max_length=50, blank=True)
+    port_of_export = models.CharField(max_length=100, blank=True)
+    shipping_bill_no = models.CharField(max_length=50, blank=True)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "order_number"]]
+
+    def __str__(self):
+        return f"Purchase Order #{self.order_number}"
+
+
+class PurchaseOrderItem(BaseModel):
+    order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="items")
+    item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    unit = models.CharField(max_length=20, blank=True)
+    price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    discount_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    taxable_value = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+
+
+class DeliveryChallan(TenantAwareModel):
+    class ChallanType(models.TextChoices):
+        SALES = "SALES", "Sales"
+        PURCHASE_RETURN = "PURCHASE_RETURN", "Purchase Return"
+        JOB_WORK = "JOB_WORK", "Job Work"
+        FREE = "FREE", "Free"
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"
+        DELIVERED = "DELIVERED", "Delivered"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    challan_number = models.CharField(max_length=50)
+    date = models.DateField()
+    financial_year = models.ForeignKey(FinancialYear, on_delete=models.PROTECT)
+    challan_type = models.CharField(
+        max_length=30, choices=ChallanType.choices, default=ChallanType.SALES
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    party = models.ForeignKey(Party, on_delete=models.PROTECT, null=True, blank=True)
+    billing_address = models.TextField(blank=True)
+    shipping_address = models.TextField(blank=True)
+    state_of_supply = models.CharField(max_length=50, blank=True)
+    transporter_name = models.CharField(max_length=100, blank=True)
+    vehicle_no = models.CharField(max_length=50, blank=True)
+    lr_rr_no = models.CharField(max_length=50, blank=True)
+    narration = models.TextField(blank=True)
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    is_invoiced = models.BooleanField(default=False)
+    eway_bill_no = models.CharField(max_length=50, blank=True)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "challan_number"]]
+
+    def __str__(self):
+        return f"DC #{self.challan_number}"
+
+
+class DeliveryChallanItem(BaseModel):
+    challan = models.ForeignKey(DeliveryChallan, on_delete=models.CASCADE, related_name="items")
+    item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    unit = models.CharField(max_length=20, blank=True)
+    rate = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    taxable_value = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
 
 
 class SalesInvoice(BaseVoucher):
+    class SupplyType(models.TextChoices):
+        REGULAR = "REGULAR", "Regular"
+        SEZ = "SEZ", "SEZ"
+        EXPORT = "EXPORT", "Export"
+
     party = models.ForeignKey(
         Party, on_delete=models.PROTECT, null=True, blank=True, related_name="sales_invoices"
     )
     bill_id = models.CharField(max_length=50, blank=True, null=True)
     bill_date = models.DateField(blank=True, null=True)
     state_of_supply = models.CharField(max_length=50, blank=True, null=True)
+    supply_type = models.CharField(
+        max_length=20, choices=SupplyType.choices, default=SupplyType.REGULAR
+    )
+    billing_address = models.TextField(blank=True)
+    shipping_address = models.TextField(blank=True)
     payment_type = models.JSONField(blank=True, null=True)
     round_off_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_taxable_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     paid = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     balance = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     description = models.TextField(blank=True, null=True)
     image = models.ImageField(upload_to="invoice/images/", blank=True, null=True)
     documents = models.FileField(upload_to="invoice/documents/", blank=True, null=True)
+    eway_bill_no = models.CharField(max_length=50, blank=True)
+    transporter_name = models.CharField(max_length=100, blank=True)
+    vehicle_no = models.CharField(max_length=50, blank=True)
+    lr_rr_no = models.CharField(max_length=50, blank=True)
+    mode_of_transport = models.CharField(max_length=50, blank=True)
+    ecommerce_gstin = models.CharField(max_length=15, blank=True)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "voucher_number"]]
 
     def __str__(self):
         return f"Sales Invoice #{self.bill_id}"
 
 
-class SalesInvoiceItem(BaseModel):
-
-    invoice = models.ForeignKey(SalesInvoice, on_delete=models.CASCADE, related_name="items")
+class AbstractInvoiceItem(BaseModel):
     item = models.ForeignKey(Item, on_delete=models.PROTECT)
-    mrp = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
-    quantity = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.00, null=True, blank=True
-    )
-    unit = models.CharField(
-        choices=Item.ItemUnitType.choices, default=Item.ItemUnitType.NONE, blank=True, null=True
-    )
-    price = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
-    )
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    unit = models.CharField(max_length=20, blank=True, null=True, default=None)
+    price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     price_type = models.CharField(
         max_length=20,
         choices=Item.PriceType.choices,
         default=Item.PriceType.WITHOUT_TAX,
         blank=True,
-        null=True,
     )
-    discount_percentage = models.CharField(max_length=10, blank=True, null=True)
-    discount_amount = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
-    )
-    tax_type = models.JSONField(blank=True, null=True)
-    tax_amount = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
-    )
-    amount = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
-    )
+    mrp = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    discount_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    taxable_value = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+
+    class Meta:
+        abstract = True
+
+
+class SalesInvoiceItem(AbstractInvoiceItem):
+    invoice = models.ForeignKey(SalesInvoice, on_delete=models.CASCADE, related_name="items")
 
     def __str__(self):
         return f"{self.item.name} on Invoice #{self.invoice.bill_id}"
 
 
 class PurchaseBill(BaseVoucher):
+    class SupplyType(models.TextChoices):
+        REGULAR = "REGULAR", "Regular"
+        SEZ = "SEZ", "SEZ"
+        EXPORT = "EXPORT", "Export"
+
     party = models.ForeignKey(
         Party, on_delete=models.PROTECT, null=True, blank=True, related_name="purchase_bills"
     )
     bill_id = models.CharField(max_length=50, blank=True, null=True)
     bill_date = models.DateField(blank=True, null=True)
     state_of_supply = models.CharField(max_length=50, blank=True, null=True)
+    supply_type = models.CharField(
+        max_length=20, choices=SupplyType.choices, default=SupplyType.REGULAR
+    )
+    billing_address = models.TextField(blank=True)
+    shipping_address = models.TextField(blank=True)
     payment_type = models.JSONField(blank=True, null=True)
     round_off_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_taxable_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     paid = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     balance = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     description = models.TextField(blank=True, null=True)
     image = models.ImageField(upload_to="purchase/images/", blank=True, null=True)
     documents = models.FileField(upload_to="purchase/documents/", blank=True, null=True)
+    eway_bill_no = models.CharField(max_length=50, blank=True)
+    transporter_name = models.CharField(max_length=100, blank=True)
+    vehicle_no = models.CharField(max_length=50, blank=True)
+    lr_rr_no = models.CharField(max_length=50, blank=True)
+    mode_of_transport = models.CharField(max_length=50, blank=True)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "voucher_number"]]
 
     def __str__(self):
         return f"Purchase Bill #{self.bill_id}"
 
 
-class PurchaseBillItem(BaseModel):
+class PurchaseBillItem(AbstractInvoiceItem):
     bill = models.ForeignKey(PurchaseBill, on_delete=models.CASCADE, related_name="items")
-    item = models.ForeignKey(Item, on_delete=models.PROTECT)
-    mrp = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
-    quantity = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.00, null=True, blank=True
-    )
-    unit = models.CharField(
-        choices=Item.ItemUnitType.choices, default=Item.ItemUnitType.NONE, blank=True, null=True
-    )
-    price = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
-    )
-    price_type = models.CharField(
-        max_length=20,
-        choices=Item.PriceType.choices,
-        default=Item.PriceType.WITHOUT_TAX,
-        blank=True,
-        null=True,
-    )
-    discount_percentage = models.CharField(max_length=10, blank=True, null=True)
-    discount_amount = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
-    )
-    tax_type = models.JSONField(blank=True, null=True)
-    tax_amount = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
-    )
-    amount = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0.00, null=True, blank=True
-    )
 
     def __str__(self):
         return f"{self.item.name} on Bill #{self.bill.bill_id}"
 
 
-class Transaction(BaseModel):
+class Transaction(TenantAwareModel):
 
     class TransactionTypeChoices(models.TextChoices):
         SALE = "SALE", "Sale"
@@ -356,20 +545,26 @@ class Transaction(BaseModel):
         PAYMENT_OUT = "PAYMENT_OUT", "Payment Out"
 
     party = models.ForeignKey(Party, on_delete=models.PROTECT)
+    voucher_type = models.CharField(max_length=50, blank=True)
     transaction_type = models.CharField(
         max_length=50, choices=TransactionTypeChoices.choices, null=True, blank=True
     )
-    recipet_no = models.CharField(max_length=50)
+    receipt_no = models.CharField(max_length=50)
     date = models.DateField()
     payment_type = models.JSONField(blank=True, null=True)
-    recieved_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    received_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    paid_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    description = models.TextField(blank=True)
     attachment = models.FileField(upload_to="transaction/documents/", blank=True, null=True)
 
 
 class ReceiptVoucher(BaseVoucher):
     party = models.ForeignKey(Party, on_delete=models.PROTECT)
-    received_in = models.ForeignKey(Account, on_delete=models.PROTECT)  # Bank or Cash account
+    received_in = models.ForeignKey(Account, on_delete=models.PROTECT)
     amount = models.DecimalField(max_digits=15, decimal_places=2)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "voucher_number"]]
 
     def __str__(self):
         return f"Receipt #{self.voucher_number}"
@@ -377,23 +572,25 @@ class ReceiptVoucher(BaseVoucher):
 
 class PaymentVoucher(BaseVoucher):
     party = models.ForeignKey(Party, on_delete=models.PROTECT)
-    paid_from = models.ForeignKey(Account, on_delete=models.PROTECT)  # Bank or Cash account
+    paid_from = models.ForeignKey(Account, on_delete=models.PROTECT)
     amount = models.DecimalField(max_digits=15, decimal_places=2)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "voucher_number"]]
 
     def __str__(self):
         return f"Payment #{self.voucher_number}"
 
 
 class JournalVoucher(BaseVoucher):
-    pass
+    class Meta:
+        unique_together = [["tenant", "financial_year", "voucher_number"]]
 
     def __str__(self):
         return f"Journal #{self.voucher_number}"
 
 
 class JournalVoucherEntry(BaseModel):
-    """Represents a single entry in a journal voucher."""
-
     voucher = models.ForeignKey(JournalVoucher, on_delete=models.CASCADE, related_name="entries")
     account = models.ForeignKey(Account, on_delete=models.PROTECT)
     debit = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
@@ -403,9 +600,146 @@ class JournalVoucherEntry(BaseModel):
         verbose_name_plural = "Journal Voucher Entries"
 
 
-class Ledger(BaseModel):
-    """Immutable ledger for all double-entry bookkeeping."""
+class ContraVoucher(BaseVoucher):
+    class ContraType(models.TextChoices):
+        DEPOSIT = "DEPOSIT", "Deposit"
+        WITHDRAWAL = "WITHDRAWAL", "Withdrawal"
+        TRANSFER = "TRANSFER", "Transfer"
 
+    contra_type = models.CharField(max_length=20, choices=ContraType.choices)
+    from_account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="contra_from")
+    to_account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="contra_to")
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    cheque_no = models.CharField(max_length=50, blank=True)
+    cheque_date = models.DateField(null=True, blank=True)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "voucher_number"]]
+
+    def __str__(self):
+        return f"Contra #{self.voucher_number}"
+
+
+class CreditNote(BaseVoucher):
+    class NoteType(models.TextChoices):
+        SALES_RETURN = "SALES_RETURN", "Sales Return"
+        CREDIT = "CREDIT", "Credit"
+
+    note_type = models.CharField(
+        max_length=20, choices=NoteType.choices, default=NoteType.SALES_RETURN
+    )
+    party = models.ForeignKey(Party, on_delete=models.PROTECT, null=True, blank=True)
+    invoice = models.ForeignKey(SalesInvoice, on_delete=models.SET_NULL, null=True, blank=True)
+    billing_address = models.TextField(blank=True)
+    shipping_address = models.TextField(blank=True)
+    state_of_supply = models.CharField(max_length=50, blank=True)
+    supply_type = models.CharField(
+        max_length=20, choices=BaseOrder.SupplyType.choices, default=BaseOrder.SupplyType.REGULAR
+    )
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    round_off = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    eway_bill_no = models.CharField(max_length=50, blank=True)
+    transporter_name = models.CharField(max_length=100, blank=True)
+    vehicle_no = models.CharField(max_length=50, blank=True)
+    lr_rr_no = models.CharField(max_length=50, blank=True)
+    mode_of_transport = models.CharField(max_length=50, blank=True)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "voucher_number"]]
+
+    def __str__(self):
+        return f"Credit Note #{self.voucher_number}"
+
+
+class CreditNoteItem(BaseModel):
+    credit_note = models.ForeignKey(CreditNote, on_delete=models.CASCADE, related_name="items")
+    item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    unit = models.CharField(max_length=20, blank=True)
+    price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    discount_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    taxable_value = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+
+
+class DebitNote(BaseVoucher):
+    class NoteType(models.TextChoices):
+        PURCHASE_RETURN = "PURCHASE_RETURN", "Purchase Return"
+        DEBIT = "DEBIT", "Debit"
+
+    note_type = models.CharField(
+        max_length=20, choices=NoteType.choices, default=NoteType.PURCHASE_RETURN
+    )
+    party = models.ForeignKey(Party, on_delete=models.PROTECT, null=True, blank=True)
+    bill = models.ForeignKey(PurchaseBill, on_delete=models.SET_NULL, null=True, blank=True)
+    billing_address = models.TextField(blank=True)
+    shipping_address = models.TextField(blank=True)
+    state_of_supply = models.CharField(max_length=50, blank=True)
+    supply_type = models.CharField(
+        max_length=20, choices=BaseOrder.SupplyType.choices, default=BaseOrder.SupplyType.REGULAR
+    )
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    round_off = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    eway_bill_no = models.CharField(max_length=50, blank=True)
+    transporter_name = models.CharField(max_length=100, blank=True)
+    vehicle_no = models.CharField(max_length=50, blank=True)
+    lr_rr_no = models.CharField(max_length=50, blank=True)
+    mode_of_transport = models.CharField(max_length=50, blank=True)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "voucher_number"]]
+
+    def __str__(self):
+        return f"Debit Note #{self.voucher_number}"
+
+
+class DebitNoteItem(BaseModel):
+    debit_note = models.ForeignKey(DebitNote, on_delete=models.CASCADE, related_name="items")
+    item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    unit = models.CharField(max_length=20, blank=True)
+    price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    discount_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    taxable_value = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+
+
+class Document(TenantAwareModel):
+    class DocCategory(models.TextChoices):
+        INVOICE = "INVOICE", "Invoice"
+        RECEIPT = "RECEIPT", "Receipt"
+        PAYMENT = "PAYMENT", "Payment"
+        ORDER = "ORDER", "Order"
+        CHALLAN = "CHALLAN", "Challan"
+        OTHERS = "OTHERS", "Others"
+
+    title = models.CharField(max_length=200)
+    category = models.CharField(max_length=20, choices=DocCategory.choices)
+    file = models.FileField(upload_to="documents/")
+    party = models.ForeignKey(Party, on_delete=models.SET_NULL, null=True, blank=True)
+    description = models.TextField(blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-uploaded_at"]
+
+    def __str__(self):
+        return self.title
+
+
+class Ledger(BaseModel):
     content_type = models.ForeignKey(ContentType, on_delete=models.PROTECT)
     object_id = models.UUIDField()
     voucher = GenericForeignKey("content_type", "object_id")
@@ -418,3 +752,93 @@ class Ledger(BaseModel):
     class Meta:
         verbose_name_plural = "Ledger"
         ordering = ["date"]
+        indexes = [
+            models.Index(fields=["content_type", "object_id"]),
+        ]
+
+
+class SaleReturn(TenantAwareModel):
+    return_number = models.CharField(max_length=50)
+    date = models.DateField()
+    financial_year = models.ForeignKey(FinancialYear, on_delete=models.PROTECT)
+    invoice = models.ForeignKey(SalesInvoice, on_delete=models.CASCADE, related_name="returns")
+    party = models.ForeignKey(Party, on_delete=models.PROTECT)
+    reason = models.TextField(blank=True)
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    is_settled = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "return_number"]]
+
+    def __str__(self):
+        return f"Sale Return #{self.return_number}"
+
+
+class SaleReturnItem(BaseModel):
+    sale_return = models.ForeignKey(SaleReturn, on_delete=models.CASCADE, related_name="items")
+    item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    unit = models.CharField(max_length=20, blank=True)
+    price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    discount_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    taxable_value = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+
+
+class PurchaseReturn(TenantAwareModel):
+    return_number = models.CharField(max_length=50)
+    date = models.DateField()
+    financial_year = models.ForeignKey(FinancialYear, on_delete=models.PROTECT)
+    bill = models.ForeignKey(PurchaseBill, on_delete=models.CASCADE, related_name="returns")
+    party = models.ForeignKey(Party, on_delete=models.PROTECT)
+    reason = models.TextField(blank=True)
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    is_settled = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = [["tenant", "financial_year", "return_number"]]
+
+    def __str__(self):
+        return f"Purchase Return #{self.return_number}"
+
+
+class PurchaseReturnItem(BaseModel):
+    purchase_return = models.ForeignKey(
+        PurchaseReturn, on_delete=models.CASCADE, related_name="items"
+    )
+    item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    unit = models.CharField(max_length=20, blank=True)
+    price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    discount_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    taxable_value = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    cgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    sgst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    igst = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    cess = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+
+
+class BankReconciliation(TenantAwareModel):
+    account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="reconciliations")
+    statement_date = models.DateField()
+    statement_balance = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    system_balance = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    difference = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    is_reconciled = models.BooleanField(default=False)
+    reconciled_at = models.DateTimeField(null=True, blank=True)
+    remarks = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-statement_date"]
+
+    def __str__(self):
+        return f"Recon {self.account.name} @ {self.statement_date}"

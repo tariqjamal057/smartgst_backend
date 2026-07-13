@@ -1,23 +1,23 @@
-from django.conf import settings
 from rest_framework import serializers
 
-from tenants.models import Company, Domain
+from tenants.models import Tenant, TenantUser
 
 
-class CompanySerializer(serializers.ModelSerializer):
-    def create(self, validated_data):
-        # Create the company (tenant)
-        company = super().create(validated_data)
+class TenantSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tenant
+        fields = "__all__"
+        read_only_fields = ("created_at", "updated_at")
 
-        # Create the domain using the host from settings
-        subdomain = validated_data.get("subdomain_name")
-        domain_str = f"{subdomain}.{settings.TENANT_DOMAIN_HOST}"
 
-        Domain.objects.create(domain=domain_str, tenant=company, is_primary=True)
-
-        return company
+class TenantUserSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source="user.email", read_only=True)
+    name = serializers.SerializerMethodField()
 
     class Meta:
-        model = Company
-        fields = "__all__"
-        read_only_fields = ("schema_name",)
+        model = TenantUser
+        fields = ("id", "tenant", "user", "email", "name", "role", "is_active", "created_at")
+        read_only_fields = ("created_at",)
+
+    def get_name(self, obj):
+        return f"{obj.user.first_name} {obj.user.last_name}".strip()

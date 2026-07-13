@@ -1,4 +1,4 @@
-from rest_framework import status, viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -6,40 +6,76 @@ from rest_framework.response import Response
 from . import services
 from .models import (
     Account,
+    BankReconciliation,
+    ContraVoucher,
+    CreditNote,
+    DebitNote,
+    DeliveryChallan,
+    Document,
     FinancialYear,
+    InvoiceSetting,
     Item,
     ItemCategory,
     JournalVoucher,
     Party,
     PaymentVoucher,
     PurchaseBill,
+    PurchaseOrder,
+    PurchaseReturn,
     ReceiptVoucher,
+    SaleOrder,
+    SaleReturn,
     SalesInvoice,
     Transaction,
 )
 from .serializers import (
     AccountSerializer,
+    BankReconciliationSerializer,
+    ContraVoucherSerializer,
+    CreditNoteSerializer,
+    DebitNoteSerializer,
+    DeliveryChallanSerializer,
+    DocumentSerializer,
     FinancialYearSerializer,
+    InvoiceSettingSerializer,
     ItemCategorySerializer,
     ItemSerializer,
     JournalVoucherSerializer,
     PartySerializer,
     PaymentVoucherSerializer,
     PurchaseBillSerializer,
+    PurchaseOrderSerializer,
+    PurchaseReturnSerializer,
     ReceiptVoucherSerializer,
+    SaleOrderSerializer,
+    SaleReturnSerializer,
     SalesInvoiceSerializer,
     TransactionSerializer,
 )
 
 
-class BaseVoucherViewSet(viewsets.ModelViewSet):
-    """Base ViewSet for vouchers that enforces financial year and posted status locks."""
+class TenantAwareViewSet(viewsets.ModelViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        tenant_id = self.request.META.get("HTTP_X_TENANT_ID")
+        if tenant_id:
+            return self.queryset.filter(tenant_id=tenant_id)
+        return self.queryset.none()
+
+    def perform_create(self, serializer):
+        tenant_id = self.request.META.get("HTTP_X_TENANT_ID")
+        if tenant_id:
+            serializer.save(tenant_id=tenant_id)
+
+
+class BaseVoucherViewSet(TenantAwareViewSet):
 
     def perform_create(self, serializer):
         financial_year = serializer.validated_data.get("financial_year")
         if financial_year and financial_year.is_locked:
             raise ValidationError(f"Financial year {financial_year} is locked.")
-        serializer.save()
+        super().perform_create(serializer)
 
     def perform_update(self, serializer):
         if serializer.instance.is_posted:
@@ -59,7 +95,6 @@ class BaseVoucherViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def post(self, request, pk=None):
-        """Posts the voucher to the ledger."""
         voucher = self.get_object()
         if voucher.is_posted:
             return Response(
@@ -70,78 +105,118 @@ class BaseVoucherViewSet(viewsets.ModelViewSet):
         return Response({"detail": "Voucher posted successfully."}, status=status.HTTP_200_OK)
 
 
-class FinancialYearViewSet(viewsets.ModelViewSet):
-    """API endpoint that allows financial years to be viewed or edited."""
-
+class FinancialYearViewSet(TenantAwareViewSet):
     queryset = FinancialYear.objects.all()
     serializer_class = FinancialYearSerializer
 
 
-class AccountViewSet(viewsets.ModelViewSet):
-    """API endpoint that allows accounts to be viewed or edited."""
-
+class AccountViewSet(TenantAwareViewSet):
     queryset = Account.objects.all()
     serializer_class = AccountSerializer
 
 
-class PartyViewSet(viewsets.ModelViewSet):
-    """API endpoint that allows parties (customers/vendors) to be viewed or edited."""
-
+class PartyViewSet(TenantAwareViewSet):
     queryset = Party.objects.all()
     serializer_class = PartySerializer
 
 
-class ItemCategoryViewSet(viewsets.ModelViewSet):
-    """API endpoint that allows item categories to be viewed or edited."""
-
+class ItemCategoryViewSet(TenantAwareViewSet):
     queryset = ItemCategory.objects.all()
     serializer_class = ItemCategorySerializer
 
 
-class ItemViewSet(viewsets.ModelViewSet):
-    """API endpoint that allows items to be viewed or edited."""
-
+class ItemViewSet(TenantAwareViewSet):
     queryset = Item.objects.all()
     serializer_class = ItemSerializer
 
 
 class SalesInvoiceViewSet(BaseVoucherViewSet):
-    """API endpoint that allows sales invoices to be viewed or edited."""
-
     queryset = SalesInvoice.objects.all()
     serializer_class = SalesInvoiceSerializer
 
 
 class PurchaseBillViewSet(BaseVoucherViewSet):
-    """API endpoint that allows purchase bills to be viewed or edited."""
-
     queryset = PurchaseBill.objects.all()
     serializer_class = PurchaseBillSerializer
 
 
 class ReceiptVoucherViewSet(BaseVoucherViewSet):
-    """API endpoint that allows receipt vouchers to be viewed or edited."""
-
     queryset = ReceiptVoucher.objects.all()
     serializer_class = ReceiptVoucherSerializer
 
 
 class PaymentVoucherViewSet(BaseVoucherViewSet):
-    """API endpoint that allows payment vouchers to be viewed or edited."""
-
     queryset = PaymentVoucher.objects.all()
     serializer_class = PaymentVoucherSerializer
 
 
 class JournalVoucherViewSet(BaseVoucherViewSet):
-    """API endpoint that allows journal vouchers to be viewed or edited."""
-
     queryset = JournalVoucher.objects.all()
     serializer_class = JournalVoucherSerializer
 
 
-class TransactionViewSet(viewsets.ModelViewSet):
-    """API endpoint that allows transactions to be viewed or edited."""
-
+class TransactionViewSet(TenantAwareViewSet):
     queryset = Transaction.objects.all()
     serializer_class = TransactionSerializer
+
+
+class InvoiceSettingViewSet(TenantAwareViewSet):
+    queryset = InvoiceSetting.objects.all()
+    serializer_class = InvoiceSettingSerializer
+
+
+class SaleOrderViewSet(TenantAwareViewSet):
+    queryset = SaleOrder.objects.all()
+    serializer_class = SaleOrderSerializer
+
+
+class PurchaseOrderViewSet(TenantAwareViewSet):
+    queryset = PurchaseOrder.objects.all()
+    serializer_class = PurchaseOrderSerializer
+
+
+class DeliveryChallanViewSet(TenantAwareViewSet):
+    queryset = DeliveryChallan.objects.all()
+    serializer_class = DeliveryChallanSerializer
+
+    @action(detail=True, methods=["post"])
+    def mark_delivered(self, request, pk=None):
+        challan = self.get_object()
+        challan.status = DeliveryChallan.Status.DELIVERED
+        challan.save()
+        return Response({"detail": "Challan marked as delivered."})
+
+
+class ContraVoucherViewSet(BaseVoucherViewSet):
+    queryset = ContraVoucher.objects.all()
+    serializer_class = ContraVoucherSerializer
+
+
+class CreditNoteViewSet(BaseVoucherViewSet):
+    queryset = CreditNote.objects.all()
+    serializer_class = CreditNoteSerializer
+
+
+class DebitNoteViewSet(BaseVoucherViewSet):
+    queryset = DebitNote.objects.all()
+    serializer_class = DebitNoteSerializer
+
+
+class DocumentViewSet(TenantAwareViewSet):
+    queryset = Document.objects.all()
+    serializer_class = DocumentSerializer
+
+
+class SaleReturnViewSet(TenantAwareViewSet):
+    queryset = SaleReturn.objects.all()
+    serializer_class = SaleReturnSerializer
+
+
+class PurchaseReturnViewSet(TenantAwareViewSet):
+    queryset = PurchaseReturn.objects.all()
+    serializer_class = PurchaseReturnSerializer
+
+
+class BankReconciliationViewSet(TenantAwareViewSet):
+    queryset = BankReconciliation.objects.all()
+    serializer_class = BankReconciliationSerializer
