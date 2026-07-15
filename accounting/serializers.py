@@ -38,6 +38,8 @@ from .models import (
 
 
 class CompanySettingSerializer(serializers.ModelSerializer):
+    website = serializers.URLField(required=False, allow_blank=True)
+
     class Meta:
         model = CompanySetting
         fields = "__all__"

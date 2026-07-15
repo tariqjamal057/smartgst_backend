@@ -233,6 +233,9 @@ class CompanySettingViewSet(TenantAwareViewSet):
     def get_queryset(self):
         return super().get_queryset().filter(is_active=True)
 
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
 
 # =====================
 # REPORT VIEWS
@@ -398,15 +401,22 @@ class GstLookupViewSet(viewsets.ViewSet):
 
     def retrieve(self, request, pk=None):
         gstin = pk
-        return Response(
-            {
-                "gstin": gstin,
-                "legal_name": f"Party for {gstin}",
-                "address": "Auto-fetched address",
-                "state": gstin[:2] if gstin and len(gstin) >= 2 else "",
-                "status": "ACTIVE",
-            }
-        )
+        # Mock data — replace with real GST API integration later
+        mock_data = {
+            "success": True,
+            "company_name": "TAXMATE TECHNOLOGY PRIVATE LIMITED",
+            "gstin": gstin,
+            "address": "No. 45, Gandhi Street, Anna Nagar",
+            "branch_address": "Plot No. 12, SIPCOT Industrial Park",
+            "state": "Tamil Nadu",
+            "country": "India",
+            "email": "info@taxmate.in",
+            "website": "www.taxmate.in",
+            "contact_person": "Rajesh Kumar",
+            "contact_no": "9876543210",
+            "status": "ACTIVE",
+        }
+        return Response(mock_data)
 
 
 class LedgerViewSet(viewsets.ViewSet):

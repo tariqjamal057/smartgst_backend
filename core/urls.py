@@ -6,6 +6,7 @@ from .views import (
     CustomTokenObtainPairView,
     LogoutView,
     RequestPasswordResetView,
+    SendOtpView,
     SetNewPasswordView,
     UserRegistrationView,
 )
@@ -17,6 +18,7 @@ router = DefaultRouter()
 
 urlpatterns = [
     path("register/", UserRegistrationView.as_view(), name="register"),
+    path("send-otp/", SendOtpView.as_view(), name="send-otp"),
     path("login/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("logout/", LogoutView.as_view(), name="logout"),

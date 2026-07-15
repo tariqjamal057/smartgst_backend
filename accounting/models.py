@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
@@ -9,11 +10,31 @@ class CompanySetting(TenantAwareModel):
     company_name = models.CharField(max_length=200)
     gstin = models.CharField(max_length=15, blank=True)
     address = models.TextField(blank=True)
+    branch_address = models.TextField(blank=True)
     state = models.CharField(max_length=50, blank=True)
+    country = models.CharField(max_length=50, blank=True)
     email = models.EmailField(blank=True)
+    website = models.URLField(blank=True)
     phone = models.CharField(max_length=15, blank=True)
+    contact_person = models.CharField(max_length=100, blank=True)
     financial_year = models.CharField(max_length=20, blank=True)
+    registration_type = models.CharField(max_length=50, blank=True)
+    use_inventory = models.CharField(max_length=10, blank=True, default="No")
+    eway_bill = models.CharField(max_length=10, blank=True, default="No")
+    eway_bill_threshold = models.CharField(max_length=20, blank=True, default="50000")
+    ewb_login_id = models.CharField(max_length=100, blank=True)
+    ewb_password = models.CharField(max_length=100, blank=True)
+    e_invoice = models.CharField(max_length=10, blank=True, default="No")
+    einvoice_login_id = models.CharField(max_length=100, blank=True)
+    einvoice_password = models.CharField(max_length=100, blank=True)
     is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_companies",
+    )
 
     class Meta:
         verbose_name_plural = "Company Settings"
