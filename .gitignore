@@ -219,3 +219,6 @@ __marimo__/
 __pycache__
 
 # sqlite db
+
+#cache folder
+cache/

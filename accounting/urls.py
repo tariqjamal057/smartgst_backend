@@ -9,12 +9,20 @@ from .views import (
     CompanySettingViewSet,
     ContraVoucherViewSet,
     CreditNoteViewSet,
+    CustomerVendorSummaryViewSet,
     DashboardSummaryViewSet,
+    DaybookViewSet,
     DebitNoteViewSet,
+    DeliveryChallanSummaryViewSet,
     DeliveryChallanViewSet,
     DocumentViewSet,
     FinancialYearViewSet,
     GstLookupViewSet,
+    GSTR1ViewSet,
+    GSTR2ViewSet,
+    GSTR3BViewSet,
+    GSTR7ViewSet,
+    HSNSACViewSet,
     InvoiceSettingViewSet,
     ItemCategoryViewSet,
     ItemViewSet,
@@ -25,11 +33,19 @@ from .views import (
     ProfitLossViewSet,
     PurchaseBillViewSet,
     PurchaseOrderViewSet,
+    PurchaseReturnSummaryViewSet,
     PurchaseReturnViewSet,
+    PurchaseSummaryViewSet,
     ReceiptVoucherViewSet,
+    SaleOrderSummaryViewSet,
     SaleOrderViewSet,
+    SaleReturnSummaryViewSet,
     SaleReturnViewSet,
     SalesInvoiceViewSet,
+    SaleSummaryViewSet,
+    StockSummaryViewSet,
+    TCSReportViewSet,
+    TDSReportViewSet,
     TransactionViewSet,
     TrialBalanceViewSet,
 )
@@ -63,6 +79,38 @@ router.register(r"reports/trial-balance", TrialBalanceViewSet, basename="trial-b
 router.register(r"reports/profit-loss", ProfitLossViewSet, basename="profit-loss")
 router.register(r"reports/balance-sheet", BalanceSheetViewSet, basename="balance-sheet")
 router.register(r"reports/cash-flow", CashFlowViewSet, basename="cash-flow")
+router.register(r"reports/sale-summary", SaleSummaryViewSet, basename="sale-summary")
+router.register(r"reports/purchase-summary", PurchaseSummaryViewSet, basename="purchase-summary")
+router.register(
+    r"reports/sale-return-summary", SaleReturnSummaryViewSet, basename="sale-return-summary"
+)
+router.register(
+    r"reports/purchase-return-summary",
+    PurchaseReturnSummaryViewSet,
+    basename="purchase-return-summary",
+)
+router.register(
+    r"reports/sale-order-summary", SaleOrderSummaryViewSet, basename="sale-order-summary"
+)
+router.register(
+    r"reports/delivery-challan-summary",
+    DeliveryChallanSummaryViewSet,
+    basename="delivery-challan-summary",
+)
+router.register(r"reports/stock-summary", StockSummaryViewSet, basename="stock-summary")
+router.register(r"reports/hsn-sac", HSNSACViewSet, basename="hsn-sac")
+router.register(
+    r"reports/customer-vendor-summary",
+    CustomerVendorSummaryViewSet,
+    basename="customer-vendor-summary",
+)
+router.register(r"reports/gstr1", GSTR1ViewSet, basename="gstr1")
+router.register(r"reports/gstr2", GSTR2ViewSet, basename="gstr2")
+router.register(r"reports/gstr3b", GSTR3BViewSet, basename="gstr3b")
+router.register(r"reports/gstr7", GSTR7ViewSet, basename="gstr7")
+router.register(r"reports/tds", TDSReportViewSet, basename="tds-report")
+router.register(r"reports/tcs", TCSReportViewSet, basename="tcs-report")
+router.register(r"reports/daybook", DaybookViewSet, basename="daybook")
 router.register(r"gst", GstLookupViewSet, basename="gst-lookup")
 router.register(r"ledger", LedgerViewSet, basename="ledger")
 

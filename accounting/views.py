@@ -1,4 +1,4 @@
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -23,12 +23,14 @@ from .models import (
     Party,
     PaymentVoucher,
     PurchaseBill,
+    PurchaseBillItem,
     PurchaseOrder,
     PurchaseReturn,
     ReceiptVoucher,
     SaleOrder,
     SaleReturn,
     SalesInvoice,
+    SalesInvoiceItem,
     Transaction,
 )
 from .serializers import (
@@ -455,3 +457,656 @@ class LedgerViewSet(viewsets.ViewSet):
                 }
             )
         return Response(data)
+
+
+# =====================
+# MISSING REPORT VIEWS
+# =====================
+
+
+def _date_filter(qs, request, date_field="date"):
+    from_date = request.query_params.get("from_date")
+    to_date = request.query_params.get("to_date")
+    if from_date:
+        qs = qs.filter(**{f"{date_field}__gte": from_date})
+    if to_date:
+        qs = qs.filter(**{f"{date_field}__lte": to_date})
+    return qs
+
+
+class SaleSummaryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = SalesInvoice.objects.all()
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+
+        data = []
+        for inv in qs.select_related("party").order_by("date"):
+            data.append(
+                {
+                    "id": str(inv.uuid),
+                    "date": inv.date,
+                    "party_name": inv.party.name if inv.party else "",
+                    "voucher_number": inv.voucher_number,
+                    "bill_id": inv.bill_id or "",
+                    "total_amount": float(inv.total_amount),
+                    "total_taxable_amount": float(inv.total_taxable_amount),
+                    "total_cgst": float(inv.total_cgst),
+                    "total_sgst": float(inv.total_sgst),
+                    "total_igst": float(inv.total_igst),
+                    "paid": float(inv.paid),
+                    "balance": float(inv.balance),
+                    "is_posted": inv.is_posted,
+                }
+            )
+        total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
+        return Response({"sales": data, "total": float(total), "count": len(data)})
+
+
+class PurchaseSummaryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = PurchaseBill.objects.all()
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+
+        data = []
+        for bill in qs.select_related("party").order_by("date"):
+            data.append(
+                {
+                    "id": str(bill.uuid),
+                    "date": bill.date,
+                    "party_name": bill.party.name if bill.party else "",
+                    "voucher_number": bill.voucher_number,
+                    "bill_id": bill.bill_id or "",
+                    "total_amount": float(bill.total_amount),
+                    "total_taxable_amount": float(bill.total_taxable_amount),
+                    "total_cgst": float(bill.total_cgst),
+                    "total_sgst": float(bill.total_sgst),
+                    "total_igst": float(bill.total_igst),
+                    "paid": float(bill.paid),
+                    "balance": float(bill.balance),
+                    "is_posted": bill.is_posted,
+                }
+            )
+        total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
+        return Response({"purchases": data, "total": float(total), "count": len(data)})
+
+
+class SaleReturnSummaryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = SaleReturn.objects.all()
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+
+        data = []
+        for ret in qs.select_related("party", "invoice").order_by("date"):
+            data.append(
+                {
+                    "id": str(ret.uuid),
+                    "date": ret.date,
+                    "return_number": ret.return_number,
+                    "party_name": ret.party.name if ret.party else "",
+                    "invoice_number": ret.invoice.bill_id if ret.invoice else "",
+                    "total_amount": float(ret.total_amount),
+                    "reason": ret.reason,
+                    "is_settled": ret.is_settled,
+                }
+            )
+        total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
+        return Response({"returns": data, "total": float(total), "count": len(data)})
+
+
+class PurchaseReturnSummaryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = PurchaseReturn.objects.all()
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+
+        data = []
+        for ret in qs.select_related("party", "bill").order_by("date"):
+            data.append(
+                {
+                    "id": str(ret.uuid),
+                    "date": ret.date,
+                    "return_number": ret.return_number,
+                    "party_name": ret.party.name if ret.party else "",
+                    "bill_number": ret.bill.bill_id if ret.bill else "",
+                    "total_amount": float(ret.total_amount),
+                    "reason": ret.reason,
+                    "is_settled": ret.is_settled,
+                }
+            )
+        total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
+        return Response({"returns": data, "total": float(total), "count": len(data)})
+
+
+class SaleOrderSummaryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = SaleOrder.objects.all()
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+
+        data = []
+        for order in qs.select_related("party").order_by("date"):
+            data.append(
+                {
+                    "id": str(order.uuid),
+                    "date": order.date,
+                    "order_number": order.order_number,
+                    "party_name": order.party.name if order.party else "",
+                    "total_amount": float(order.total_amount),
+                    "status": order.status,
+                    "is_converted": order.is_converted,
+                }
+            )
+        total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
+        return Response({"orders": data, "total": float(total), "count": len(data)})
+
+
+class DeliveryChallanSummaryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = DeliveryChallan.objects.all()
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+
+        data = []
+        for dc in qs.select_related("party").order_by("date"):
+            data.append(
+                {
+                    "id": str(dc.uuid),
+                    "date": dc.date,
+                    "challan_number": dc.challan_number,
+                    "challan_type": dc.challan_type,
+                    "party_name": dc.party.name if dc.party else "",
+                    "total_amount": float(dc.total_amount),
+                    "status": dc.status,
+                    "is_invoiced": dc.is_invoiced,
+                }
+            )
+        total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
+        return Response({"challans": data, "total": float(total), "count": len(data)})
+
+
+class StockSummaryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        items = Item.objects.all()
+        if tenant_id:
+            items = items.filter(tenant_id=tenant_id)
+
+        data = []
+        for item in items.select_related("category"):
+            sale_qty = 0
+            purchase_qty = 0
+            if tenant_id:
+                sale_qty = (
+                    SalesInvoiceItem.objects.filter(
+                        invoice__tenant_id=tenant_id, item=item
+                    ).aggregate(q=Sum("quantity"))["q"]
+                    or 0
+                )
+                purchase_qty = (
+                    PurchaseBillItem.objects.filter(
+                        bill__tenant_id=tenant_id, item=item
+                    ).aggregate(q=Sum("quantity"))["q"]
+                    or 0
+                )
+            data.append(
+                {
+                    "id": str(item.uuid),
+                    "name": item.name,
+                    "hsn_code": item.hsn_code or "",
+                    "category": item.category.name if item.category else "",
+                    "opening_quantity": float(item.opening_quantity or 0),
+                    "sale_quantity": float(sale_qty),
+                    "purchase_quantity": float(purchase_qty),
+                    "closing_quantity": float(
+                        (item.opening_quantity or 0) + purchase_qty - sale_qty
+                    ),
+                    "sale_price": float(item.sale_price or 0),
+                    "purchase_price": float(item.purchase_price or 0),
+                    "mrp": float(item.mrp or 0),
+                }
+            )
+        return Response({"items": data, "count": len(data)})
+
+
+class HSNSACViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+
+        sale_items = SalesInvoiceItem.objects.all()
+        purchase_items = PurchaseBillItem.objects.all()
+        if tenant_id:
+            sale_items = sale_items.filter(invoice__tenant_id=tenant_id)
+            purchase_items = purchase_items.filter(bill__tenant_id=tenant_id)
+        sale_items = _date_filter(sale_items, request, date_field="invoice__date")
+        purchase_items = _date_filter(purchase_items, request, date_field="bill__date")
+
+        hsn_map = {}
+        for si in sale_items.select_related("item"):
+            hsn = si.item.hsn_code or "UNKNOWN"
+            if hsn not in hsn_map:
+                hsn_map[hsn] = {
+                    "hsn_code": hsn,
+                    "item_name": si.item.name,
+                    "sale_quantity": 0,
+                    "sale_taxable_value": 0,
+                    "sale_cgst": 0,
+                    "sale_sgst": 0,
+                    "sale_igst": 0,
+                    "purchase_quantity": 0,
+                    "purchase_taxable_value": 0,
+                    "purchase_cgst": 0,
+                    "purchase_sgst": 0,
+                    "purchase_igst": 0,
+                }
+            hsn_map[hsn]["sale_quantity"] += float(si.quantity)
+            hsn_map[hsn]["sale_taxable_value"] += float(si.taxable_value)
+            hsn_map[hsn]["sale_cgst"] += float(si.cgst)
+            hsn_map[hsn]["sale_sgst"] += float(si.sgst)
+            hsn_map[hsn]["sale_igst"] += float(si.igst)
+
+        for pi in purchase_items.select_related("item"):
+            hsn = pi.item.hsn_code or "UNKNOWN"
+            if hsn not in hsn_map:
+                hsn_map[hsn] = {
+                    "hsn_code": hsn,
+                    "item_name": pi.item.name,
+                    "sale_quantity": 0,
+                    "sale_taxable_value": 0,
+                    "sale_cgst": 0,
+                    "sale_sgst": 0,
+                    "sale_igst": 0,
+                    "purchase_quantity": 0,
+                    "purchase_taxable_value": 0,
+                    "purchase_cgst": 0,
+                    "purchase_sgst": 0,
+                    "purchase_igst": 0,
+                }
+            hsn_map[hsn]["purchase_quantity"] += float(pi.quantity)
+            hsn_map[hsn]["purchase_taxable_value"] += float(pi.taxable_value)
+            hsn_map[hsn]["purchase_cgst"] += float(pi.cgst)
+            hsn_map[hsn]["purchase_sgst"] += float(pi.sgst)
+            hsn_map[hsn]["purchase_igst"] += float(pi.igst)
+
+        return Response({"hsn_summary": list(hsn_map.values()), "count": len(hsn_map)})
+
+
+class CustomerVendorSummaryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        parties = Party.objects.all()
+        if tenant_id:
+            parties = parties.filter(tenant_id=tenant_id)
+
+        party_type = request.query_params.get("party_type")
+        if party_type:
+            parties = parties.filter(party_type=party_type)
+
+        data = []
+        for party in parties:
+            sales_total = 0
+            purchases_total = 0
+            sales_balance = 0
+            purchases_balance = 0
+            if tenant_id:
+                sales_total = (
+                    SalesInvoice.objects.filter(party=party, tenant_id=tenant_id).aggregate(
+                        t=Sum("total_amount")
+                    )["t"]
+                    or 0
+                )
+                purchases_total = (
+                    PurchaseBill.objects.filter(party=party, tenant_id=tenant_id).aggregate(
+                        t=Sum("total_amount")
+                    )["t"]
+                    or 0
+                )
+                sales_balance = (
+                    SalesInvoice.objects.filter(party=party, tenant_id=tenant_id).aggregate(
+                        t=Sum("balance")
+                    )["t"]
+                    or 0
+                )
+                purchases_balance = (
+                    PurchaseBill.objects.filter(party=party, tenant_id=tenant_id).aggregate(
+                        t=Sum("balance")
+                    )["t"]
+                    or 0
+                )
+
+            data.append(
+                {
+                    "id": str(party.uuid),
+                    "name": party.name,
+                    "party_type": party.party_type,
+                    "gstin": party.gstin or "",
+                    "phone": party.phone or "",
+                    "email": party.email or "",
+                    "total_sales": float(sales_total),
+                    "total_purchases": float(purchases_total),
+                    "sales_balance": float(sales_balance),
+                    "purchases_balance": float(purchases_balance),
+                    "net_balance": float(sales_balance - purchases_balance),
+                }
+            )
+        return Response({"parties": data, "count": len(data)})
+
+
+class GSTR1ViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = SalesInvoice.objects.filter(is_posted=True)
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+
+        b2b = []
+        for inv in qs.select_related("party").exclude(party__gstin=""):
+            b2b.append(
+                {
+                    "gstin": inv.party.gstin if inv.party else "",
+                    "party_name": inv.party.name if inv.party else "",
+                    "invoice_number": inv.bill_id or inv.voucher_number,
+                    "invoice_date": inv.date,
+                    "invoice_value": float(inv.total_amount),
+                    "taxable_value": float(inv.total_taxable_amount),
+                    "place_of_supply": inv.state_of_supply or "",
+                    "supply_type": inv.supply_type,
+                    "rate": float(inv.items.first().gst_rate if inv.items.exists() else 0),
+                    "igst": float(inv.total_igst),
+                    "cgst": float(inv.total_cgst),
+                    "sgst": float(inv.total_sgst),
+                    "cess": float(inv.total_cess),
+                }
+            )
+        b2c = []
+        for inv in qs.filter(Q(party__isnull=True) | Q(party__gstin="")):
+            b2c.append(
+                {
+                    "invoice_number": inv.bill_id or inv.voucher_number,
+                    "invoice_date": inv.date,
+                    "invoice_value": float(inv.total_amount),
+                    "taxable_value": float(inv.total_taxable_amount),
+                    "place_of_supply": inv.state_of_supply or "",
+                    "rate": float(inv.items.first().gst_rate if inv.items.exists() else 0),
+                    "igst": float(inv.total_igst),
+                    "cgst": float(inv.total_cgst),
+                    "sgst": float(inv.total_sgst),
+                }
+            )
+        summary = {
+            "total_taxable_value": float(qs.aggregate(t=Sum("total_taxable_amount"))["t"] or 0),
+            "total_igst": float(qs.aggregate(t=Sum("total_igst"))["t"] or 0),
+            "total_cgst": float(qs.aggregate(t=Sum("total_cgst"))["t"] or 0),
+            "total_sgst": float(qs.aggregate(t=Sum("total_sgst"))["t"] or 0),
+            "total_cess": float(qs.aggregate(t=Sum("total_cess"))["t"] or 0),
+        }
+        return Response({"b2b": b2b, "b2c": b2c, "summary": summary})
+
+
+class GSTR2ViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = PurchaseBill.objects.filter(is_posted=True)
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+
+        b2b = []
+        for bill in qs.select_related("party").exclude(party__gstin=""):
+            b2b.append(
+                {
+                    "gstin": bill.party.gstin if bill.party else "",
+                    "party_name": bill.party.name if bill.party else "",
+                    "bill_number": bill.bill_id or bill.voucher_number,
+                    "bill_date": bill.date,
+                    "bill_value": float(bill.total_amount),
+                    "taxable_value": float(bill.total_taxable_amount),
+                    "place_of_supply": bill.state_of_supply or "",
+                    "supply_type": bill.supply_type,
+                    "rate": float(bill.items.first().gst_rate if bill.items.exists() else 0),
+                    "igst": float(bill.total_igst),
+                    "cgst": float(bill.total_cgst),
+                    "sgst": float(bill.total_sgst),
+                    "cess": float(bill.total_cess),
+                }
+            )
+        summary = {
+            "total_taxable_value": float(qs.aggregate(t=Sum("total_taxable_amount"))["t"] or 0),
+            "total_igst": float(qs.aggregate(t=Sum("total_igst"))["t"] or 0),
+            "total_cgst": float(qs.aggregate(t=Sum("total_cgst"))["t"] or 0),
+            "total_sgst": float(qs.aggregate(t=Sum("total_sgst"))["t"] or 0),
+            "total_cess": float(qs.aggregate(t=Sum("total_cess"))["t"] or 0),
+        }
+        return Response({"b2b": b2b, "summary": summary})
+
+
+class GSTR3BViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        sales = SalesInvoice.objects.filter(is_posted=True)
+        purchases = PurchaseBill.objects.filter(is_posted=True)
+        if tenant_id:
+            sales = sales.filter(tenant_id=tenant_id)
+            purchases = purchases.filter(tenant_id=tenant_id)
+        sales = _date_filter(sales, request)
+        purchases = _date_filter(purchases, request)
+
+        outward_taxable = float(sales.aggregate(t=Sum("total_taxable_amount"))["t"] or 0)
+        outward_igst = float(sales.aggregate(t=Sum("total_igst"))["t"] or 0)
+        outward_cgst = float(sales.aggregate(t=Sum("total_cgst"))["t"] or 0)
+        outward_sgst = float(sales.aggregate(t=Sum("total_sgst"))["t"] or 0)
+
+        inward_taxable = float(purchases.aggregate(t=Sum("total_taxable_amount"))["t"] or 0)
+        inward_igst = float(purchases.aggregate(t=Sum("total_igst"))["t"] or 0)
+        inward_cgst = float(purchases.aggregate(t=Sum("total_cgst"))["t"] or 0)
+        inward_sgst = float(purchases.aggregate(t=Sum("total_sgst"))["t"] or 0)
+
+        return Response(
+            {
+                "outward_supplies": {
+                    "taxable_value": outward_taxable,
+                    "igst": outward_igst,
+                    "cgst": outward_cgst,
+                    "sgst": outward_sgst,
+                },
+                "inward_supplies": {
+                    "taxable_value": inward_taxable,
+                    "igst": inward_igst,
+                    "cgst": inward_cgst,
+                    "sgst": inward_sgst,
+                },
+                "net_liability": {
+                    "igst": outward_igst - inward_igst,
+                    "cgst": outward_cgst - inward_cgst,
+                    "sgst": outward_sgst - inward_sgst,
+                },
+            }
+        )
+
+
+class GSTR7ViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        qs = Transaction.objects.filter(
+            transaction_type__in=[
+                Transaction.TransactionTypeChoices.SALE,
+                Transaction.TransactionTypeChoices.PURCHASE,
+            ]
+        )
+        if tenant_id:
+            qs = qs.filter(tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+
+        data = []
+        for txn in qs.select_related("party").order_by("date"):
+            data.append(
+                {
+                    "id": str(txn.uuid),
+                    "date": txn.date,
+                    "party_name": txn.party.name if txn.party else "",
+                    "party_gstin": txn.party.gstin if txn.party else "",
+                    "voucher_type": txn.voucher_type,
+                    "receipt_no": txn.receipt_no,
+                    "paid_amount": float(txn.paid_amount),
+                    "received_amount": float(txn.received_amount),
+                }
+            )
+        return Response({"transactions": data, "count": len(data)})
+
+
+class TDSReportViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        payments = PaymentVoucher.objects.all()
+        if tenant_id:
+            payments = payments.filter(tenant_id=tenant_id)
+        payments = _date_filter(payments, request)
+
+        data = []
+        for pmt in payments.select_related("party").order_by("date"):
+            data.append(
+                {
+                    "id": str(pmt.uuid),
+                    "date": pmt.date,
+                    "party_name": pmt.party.name if pmt.party else "",
+                    "party_gstin": pmt.party.gstin if pmt.party else "",
+                    "voucher_number": pmt.voucher_number,
+                    "amount": float(pmt.amount),
+                    "section": "194C",
+                    "tds_rate": 1.0,
+                    "tds_amount": float(pmt.amount) * 0.01,
+                }
+            )
+        total_tds = sum(d["tds_amount"] for d in data)
+        return Response({"entries": data, "total_tds": total_tds, "count": len(data)})
+
+
+class TCSReportViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        receipts = ReceiptVoucher.objects.all()
+        if tenant_id:
+            receipts = receipts.filter(tenant_id=tenant_id)
+        receipts = _date_filter(receipts, request)
+
+        data = []
+        for rcpt in receipts.select_related("party").order_by("date"):
+            data.append(
+                {
+                    "id": str(rcpt.uuid),
+                    "date": rcpt.date,
+                    "party_name": rcpt.party.name if rcpt.party else "",
+                    "party_gstin": rcpt.party.gstin if rcpt.party else "",
+                    "voucher_number": rcpt.voucher_number,
+                    "amount": float(rcpt.amount),
+                    "section": "206C",
+                    "tcs_rate": 0.1,
+                    "tcs_amount": float(rcpt.amount) * 0.001,
+                }
+            )
+        total_tcs = sum(d["tcs_amount"] for d in data)
+        return Response({"entries": data, "total_tcs": total_tcs, "count": len(data)})
+
+
+class DaybookViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        date = request.query_params.get("date")
+
+        transactions = Transaction.objects.all()
+        if tenant_id:
+            transactions = transactions.filter(tenant_id=tenant_id)
+        if date:
+            transactions = transactions.filter(date=date)
+        else:
+            transactions = _date_filter(transactions, request)
+
+        data = []
+        for txn in transactions.select_related("party").order_by("date"):
+            data.append(
+                {
+                    "id": str(txn.uuid),
+                    "date": txn.date,
+                    "party_name": txn.party.name if txn.party else "",
+                    "voucher_type": txn.voucher_type,
+                    "transaction_type": txn.transaction_type,
+                    "receipt_no": txn.receipt_no,
+                    "paid_amount": float(txn.paid_amount),
+                    "received_amount": float(txn.received_amount),
+                    "description": txn.description,
+                }
+            )
+        total_received = sum(d["received_amount"] for d in data)
+        total_paid = sum(d["paid_amount"] for d in data)
+        return Response(
+            {
+                "entries": data,
+                "total_received": total_received,
+                "total_paid": total_paid,
+                "net": total_received - total_paid,
+                "count": len(data),
+            }
+        )
