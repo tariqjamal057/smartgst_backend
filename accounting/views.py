@@ -4,6 +4,8 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
+from tenants.models import Tenant, TenantUser
+
 from . import services
 from .models import (
     Account,
@@ -65,9 +67,9 @@ class TenantAwareViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         tenant_id = self.request.META.get("HTTP_X_TENANT_ID")
-        if tenant_id:
-            return self.queryset.filter(tenant_id=tenant_id)
-        return self.queryset.none()
+        if not tenant_id:
+            return self.queryset.none()
+        return self.queryset.filter(tenant_id=tenant_id)
 
     def perform_create(self, serializer):
         tenant_id = self.request.META.get("HTTP_X_TENANT_ID")
@@ -233,7 +235,24 @@ class CompanySettingViewSet(TenantAwareViewSet):
     serializer_class = CompanySettingSerializer
 
     def get_queryset(self):
-        return super().get_queryset().filter(is_active=True)
+        tenant_id = self.request.META.get("HTTP_X_TENANT_ID")
+        if tenant_id:
+            return CompanySetting.objects.filter(is_active=True, tenant_id=tenant_id)
+        return CompanySetting.objects.filter(is_active=True, created_by=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        company = serializer.save(created_by=request.user)
+        tenant = Tenant.objects.create(
+            name=f"{company.company_name} ({company.company_id})",
+            subdomain_name=company.company_id,
+            gstin=company.gstin or "",
+        )
+        company.tenant = tenant
+        company.save(update_fields=["tenant"])
+        TenantUser.objects.create(tenant=tenant, user=request.user, role="ADMIN")
+        return Response(self.get_serializer(company).data, status=status.HTTP_201_CREATED)
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -248,12 +267,22 @@ class DashboardSummaryViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response(
+                {
+                    "total_sales": 0,
+                    "total_purchases": 0,
+                    "sales_count": 0,
+                    "purchase_count": 0,
+                    "pending_receivables": 0,
+                    "pending_payables": 0,
+                }
+            )
         qs = SalesInvoice.objects.all()
         pq = PurchaseBill.objects.all()
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
-            pq = pq.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
+        pq = pq.filter(tenant_id=tenant_id)
 
         total_sales = qs.aggregate(t=Sum("total_amount"))["t"] or 0
         total_purchases = pq.aggregate(t=Sum("total_amount"))["t"] or 0
@@ -278,15 +307,14 @@ class TrialBalanceViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"accounts": [], "total_debit": 0, "total_credit": 0})
         qs = Ledger.objects.all()
-        if tenant_id:
-            qs = qs.filter(account__tenant_id=tenant_id)
+        qs = qs.filter(account__tenant_id=tenant_id)
 
         data = []
-        accounts = (
-            Account.objects.filter(tenant_id=tenant_id) if tenant_id else Account.objects.all()
-        )
+        accounts = Account.objects.filter(tenant_id=tenant_id)
         for account in accounts:
             agg = qs.filter(account=account).aggregate(d=Sum("debit"), c=Sum("credit"))
             data.append(
@@ -306,16 +334,24 @@ class ProfitLossViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response(
+                {
+                    "income": [],
+                    "expenses": [],
+                    "total_income": 0,
+                    "total_expense": 0,
+                    "net_profit": 0,
+                }
+            )
         qs = Ledger.objects.all()
-        if tenant_id:
-            qs = qs.filter(account__tenant_id=tenant_id)
+        qs = qs.filter(account__tenant_id=tenant_id)
 
         income_accounts = Account.objects.filter(account_type=Account.AccountType.REVENUE)
         expense_accounts = Account.objects.filter(account_type=Account.AccountType.EXPENSE)
-        if tenant_id:
-            income_accounts = income_accounts.filter(tenant_id=tenant_id)
-            expense_accounts = expense_accounts.filter(tenant_id=tenant_id)
+        income_accounts = income_accounts.filter(tenant_id=tenant_id)
+        expense_accounts = expense_accounts.filter(tenant_id=tenant_id)
 
         income = []
         for a in income_accounts:
@@ -346,15 +382,15 @@ class BalanceSheetViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"liabilities": [], "equity": [], "assets": []})
         qs = Ledger.objects.all()
-        if tenant_id:
-            qs = qs.filter(account__tenant_id=tenant_id)
+        qs = qs.filter(account__tenant_id=tenant_id)
 
         def group_accounts(acc_type):
             accounts = Account.objects.filter(account_type=acc_type)
-            if tenant_id:
-                accounts = accounts.filter(tenant_id=tenant_id)
+            accounts = accounts.filter(tenant_id=tenant_id)
             groups = []
             for acct in accounts:
                 if acct.parent:
@@ -378,13 +414,20 @@ class CashFlowViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response(
+                {
+                    "total_inflow": 0,
+                    "total_outflow": 0,
+                    "net_cash_flow": 0,
+                }
+            )
 
         receipts = ReceiptVoucher.objects.all()
         payments = PaymentVoucher.objects.all()
-        if tenant_id:
-            receipts = receipts.filter(tenant_id=tenant_id)
-            payments = payments.filter(tenant_id=tenant_id)
+        receipts = receipts.filter(tenant_id=tenant_id)
+        payments = payments.filter(tenant_id=tenant_id)
 
         total_inflow = receipts.aggregate(t=Sum("amount"))["t"] or 0
         total_outflow = payments.aggregate(t=Sum("amount"))["t"] or 0
@@ -425,10 +468,11 @@ class LedgerViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response([])
         qs = Ledger.objects.select_related("account").all()
-        if tenant_id:
-            qs = qs.filter(account__tenant_id=tenant_id)
+        qs = qs.filter(account__tenant_id=tenant_id)
 
         account_id = request.query_params.get("account")
         from_date = request.query_params.get("from_date")
@@ -474,15 +518,23 @@ def _date_filter(qs, request, date_field="date"):
     return qs
 
 
+def _get_tenant_or_empty(request):
+    tenant_id = request.META.get("HTTP_X_TENANT_ID")
+    if not tenant_id:
+        return None
+    return tenant_id
+
+
 class SaleSummaryViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"sales": [], "total": 0, "count": 0})
         qs = SalesInvoice.objects.all()
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
         data = []
@@ -513,10 +565,11 @@ class PurchaseSummaryViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"purchases": [], "total": 0, "count": 0})
         qs = PurchaseBill.objects.all()
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
         data = []
@@ -547,10 +600,11 @@ class SaleReturnSummaryViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"returns": [], "total": 0, "count": 0})
         qs = SaleReturn.objects.all()
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
         data = []
@@ -576,10 +630,11 @@ class PurchaseReturnSummaryViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"returns": [], "total": 0, "count": 0})
         qs = PurchaseReturn.objects.all()
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
         data = []
@@ -605,10 +660,11 @@ class SaleOrderSummaryViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"orders": [], "total": 0, "count": 0})
         qs = SaleOrder.objects.all()
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
         data = []
@@ -633,10 +689,11 @@ class DeliveryChallanSummaryViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"challans": [], "total": 0, "count": 0})
         qs = DeliveryChallan.objects.all()
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
         data = []
@@ -662,10 +719,11 @@ class StockSummaryViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"items": [], "count": 0})
         items = Item.objects.all()
-        if tenant_id:
-            items = items.filter(tenant_id=tenant_id)
+        items = items.filter(tenant_id=tenant_id)
 
         data = []
         for item in items.select_related("category"):
@@ -709,13 +767,14 @@ class HSNSACViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"hsn_summary": [], "count": 0})
 
         sale_items = SalesInvoiceItem.objects.all()
         purchase_items = PurchaseBillItem.objects.all()
-        if tenant_id:
-            sale_items = sale_items.filter(invoice__tenant_id=tenant_id)
-            purchase_items = purchase_items.filter(bill__tenant_id=tenant_id)
+        sale_items = sale_items.filter(invoice__tenant_id=tenant_id)
+        purchase_items = purchase_items.filter(bill__tenant_id=tenant_id)
         sale_items = _date_filter(sale_items, request, date_field="invoice__date")
         purchase_items = _date_filter(purchase_items, request, date_field="bill__date")
 
@@ -774,10 +833,11 @@ class CustomerVendorSummaryViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"parties": [], "count": 0})
         parties = Party.objects.all()
-        if tenant_id:
-            parties = parties.filter(tenant_id=tenant_id)
+        parties = parties.filter(tenant_id=tenant_id)
 
         party_type = request.query_params.get("party_type")
         if party_type:
@@ -838,10 +898,23 @@ class GSTR1ViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response(
+                {
+                    "b2b": [],
+                    "b2c": [],
+                    "summary": {
+                        "total_taxable_value": 0,
+                        "total_igst": 0,
+                        "total_cgst": 0,
+                        "total_sgst": 0,
+                        "total_cess": 0,
+                    },
+                }
+            )
         qs = SalesInvoice.objects.filter(is_posted=True)
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
         b2b = []
@@ -893,10 +966,22 @@ class GSTR2ViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response(
+                {
+                    "b2b": [],
+                    "summary": {
+                        "total_taxable_value": 0,
+                        "total_igst": 0,
+                        "total_cgst": 0,
+                        "total_sgst": 0,
+                        "total_cess": 0,
+                    },
+                }
+            )
         qs = PurchaseBill.objects.filter(is_posted=True)
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
         b2b = []
@@ -933,12 +1018,19 @@ class GSTR3BViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response(
+                {
+                    "outward_supplies": {"taxable_value": 0, "igst": 0, "cgst": 0, "sgst": 0},
+                    "inward_supplies": {"taxable_value": 0, "igst": 0, "cgst": 0, "sgst": 0},
+                    "net_liability": {"igst": 0, "cgst": 0, "sgst": 0},
+                }
+            )
         sales = SalesInvoice.objects.filter(is_posted=True)
         purchases = PurchaseBill.objects.filter(is_posted=True)
-        if tenant_id:
-            sales = sales.filter(tenant_id=tenant_id)
-            purchases = purchases.filter(tenant_id=tenant_id)
+        sales = sales.filter(tenant_id=tenant_id)
+        purchases = purchases.filter(tenant_id=tenant_id)
         sales = _date_filter(sales, request)
         purchases = _date_filter(purchases, request)
 
@@ -980,15 +1072,16 @@ class GSTR7ViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"transactions": [], "count": 0})
         qs = Transaction.objects.filter(
             transaction_type__in=[
                 Transaction.TransactionTypeChoices.SALE,
                 Transaction.TransactionTypeChoices.PURCHASE,
             ]
         )
-        if tenant_id:
-            qs = qs.filter(tenant_id=tenant_id)
+        qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
         data = []
@@ -1013,10 +1106,11 @@ class TDSReportViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"entries": [], "total_tds": 0, "count": 0})
         payments = PaymentVoucher.objects.all()
-        if tenant_id:
-            payments = payments.filter(tenant_id=tenant_id)
+        payments = payments.filter(tenant_id=tenant_id)
         payments = _date_filter(payments, request)
 
         data = []
@@ -1043,10 +1137,11 @@ class TCSReportViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"entries": [], "total_tcs": 0, "count": 0})
         receipts = ReceiptVoucher.objects.all()
-        if tenant_id:
-            receipts = receipts.filter(tenant_id=tenant_id)
+        receipts = receipts.filter(tenant_id=tenant_id)
         receipts = _date_filter(receipts, request)
 
         data = []
@@ -1073,12 +1168,15 @@ class DaybookViewSet(viewsets.ViewSet):
     http_method_names = ["get"]
 
     def list(self, request):
-        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response(
+                {"entries": [], "total_received": 0, "total_paid": 0, "net": 0, "count": 0}
+            )
         date = request.query_params.get("date")
 
         transactions = Transaction.objects.all()
-        if tenant_id:
-            transactions = transactions.filter(tenant_id=tenant_id)
+        transactions = transactions.filter(tenant_id=tenant_id)
         if date:
             transactions = transactions.filter(date=date)
         else:

@@ -1,3 +1,6 @@
+import secrets
+import string
+
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
@@ -6,7 +9,15 @@ from django.db import models
 from core.models import BaseModel, TenantAwareModel
 
 
+def generate_company_id():
+    while True:
+        cid = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+        if not CompanySetting.objects.filter(company_id=cid).exists():
+            return cid
+
+
 class CompanySetting(TenantAwareModel):
+    company_id = models.CharField(max_length=6, unique=True, default=generate_company_id)
     company_name = models.CharField(max_length=200)
     gstin = models.CharField(max_length=15, blank=True)
     address = models.TextField(blank=True)
@@ -18,6 +29,8 @@ class CompanySetting(TenantAwareModel):
     phone = models.CharField(max_length=15, blank=True)
     contact_person = models.CharField(max_length=100, blank=True)
     financial_year = models.CharField(max_length=20, blank=True)
+    book_beginning = models.DateField(null=True, blank=True)
+    return_type = models.CharField(max_length=20, blank=True, default="Monthly")
     registration_type = models.CharField(max_length=50, blank=True)
     use_inventory = models.CharField(max_length=10, blank=True, default="No")
     eway_bill = models.CharField(max_length=10, blank=True, default="No")
