@@ -211,6 +211,9 @@ EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@smartgst.com")
 
+# Frontend URL used for building links inside emails
+FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
+
 # Cache (file-based for development, stores OTPs temporarily)
 CACHES = {
     "default": {

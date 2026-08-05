@@ -3,10 +3,13 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     AccountViewSet,
+    BackupRestoreViewSet,
     BalanceSheetViewSet,
     BankReconciliationViewSet,
     CashFlowViewSet,
     CompanySettingViewSet,
+    CompanySplitViewSet,
+    ConnectCAViewSet,
     ContraVoucherViewSet,
     CreditNoteViewSet,
     CustomerVendorSummaryViewSet,
@@ -74,6 +77,9 @@ router.register(r"sale-returns", SaleReturnViewSet)
 router.register(r"purchase-returns", PurchaseReturnViewSet)
 router.register(r"bank-reconciliations", BankReconciliationViewSet)
 router.register(r"company-settings", CompanySettingViewSet)
+router.register(r"connect-ca", ConnectCAViewSet, basename="connect-ca")
+router.register(r"backup", BackupRestoreViewSet, basename="backup")
+router.register(r"company-split", CompanySplitViewSet, basename="company-split")
 router.register(r"dashboard/summary", DashboardSummaryViewSet, basename="dashboard-summary")
 router.register(r"reports/trial-balance", TrialBalanceViewSet, basename="trial-balance")
 router.register(r"reports/profit-loss", ProfitLossViewSet, basename="profit-loss")

@@ -1,0 +1,35 @@
+{% autoescape off %}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; color: #1f2937; background: #f9fafb; margin: 0; padding: 24px; }
+    .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 24px; }
+    h2 { margin-top: 0; }
+    .btn { display: inline-block; background: #4f46e5; color: #ffffff !important; padding: 12px 24px; border-radius: 6px; text-decoration: none; }
+    .footer { margin-top: 24px; font-size: 12px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Connection Invitation</h2>
+    <p>Hi,</p>
+    <p>
+      {{ invited_by }} has invited you to connect with
+      <strong>{{ company_name }}</strong> on SmartGST as an Accountant/CA.
+    </p>
+    <p>Click the button below to accept the invitation and access the company workspace:</p>
+    <p>
+      <a class="btn" href="{{ protocol }}://{{ domain }}/accept-invite?tenant_id={{ tenant_id }}">
+        Accept Invitation
+      </a>
+    </p>
+    <p>If the button does not work, copy and paste this link in your browser:</p>
+    <p>{{ protocol }}://{{ domain }}/accept-invite?tenant_id={{ tenant_id }}</p>
+    <p>If you did not expect this invitation, you can safely ignore this email.</p>
+    <p class="footer">Thanks,<br>The SmartGST Team</p>
+  </div>
+</body>
+</html>
+{% endautoescape %}

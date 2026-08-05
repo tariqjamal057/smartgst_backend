@@ -1,9 +1,17 @@
+import json
+import logging
+from datetime import date
+
+from django.contrib.auth import get_user_model
 from django.db.models import Q, Sum
+from django.http import HttpResponse
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
+from core.tasks import send_company_deletion_email_task, send_invitation_email_task
 from tenants.models import Tenant, TenantUser
 
 from . import services
@@ -61,6 +69,9 @@ from .serializers import (
     TransactionSerializer,
 )
 
+User = get_user_model()
+logger = logging.getLogger(__name__)
+
 
 class TenantAwareViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
@@ -75,6 +86,69 @@ class TenantAwareViewSet(viewsets.ModelViewSet):
         tenant_id = self.request.META.get("HTTP_X_TENANT_ID")
         if tenant_id:
             serializer.save(tenant_id=tenant_id)
+
+
+class BackupRestoreViewSet(viewsets.GenericViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_tenant_id(self):
+        tenant_id = self.request.META.get("HTTP_X_TENANT_ID")
+        if not tenant_id:
+            raise ValidationError("Tenant header missing.")
+        return tenant_id
+
+    @action(detail=False, methods=["get"])
+    def export(self, request):
+        tenant_id = self._get_tenant_id()
+        from .backup_service import export_tenant_json
+
+        payload = export_tenant_json(tenant_id)
+        company = CompanySetting.objects.filter(id=tenant_id).first()
+        company_name = company.company_name if company else "company"
+        filename = f"backup_{company_name}_{date.today().isoformat()}.json"
+        response = HttpResponse(payload, content_type="application/json")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    @action(detail=False, methods=["post"], parser_classes=[MultiPartParser])
+    def restore(self, request):
+        tenant_id = self._get_tenant_id()
+        from .backup_service import restore_tenant_json
+
+        file = request.FILES.get("file")
+        if not file:
+            raise ValidationError("No backup file uploaded.")
+        try:
+            payload = json.loads(file.read().decode("utf-8-sig"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise ValidationError("Invalid JSON backup file.")
+        tenant = Tenant.objects.get(id=tenant_id)
+        count = restore_tenant_json(tenant, payload)
+        return Response({"detail": f"Restored {count} records.", "restored": count})
+
+
+class CompanySplitViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def create(self, request):
+        tenant_id = self.request.META.get("HTTP_X_TENANT_ID")
+        if not tenant_id:
+            raise ValidationError("Tenant header missing.")
+        split_date = request.data.get("split_date")
+        if not split_date:
+            raise ValidationError("Split date is required.")
+        try:
+            split_date = date.fromisoformat(str(split_date))
+        except ValueError:
+            raise ValidationError("Invalid split date.")
+        try:
+            tenant = Tenant.objects.get(id=tenant_id)
+        except Tenant.DoesNotExist:
+            raise ValidationError("Tenant not found.")
+        from .split_service import split_company
+
+        result = split_company(tenant, request.user, split_date)
+        return Response(result, status=status.HTTP_201_CREATED)
 
 
 class BaseVoucherViewSet(TenantAwareViewSet):
@@ -256,6 +330,148 @@ class CompanySettingViewSet(TenantAwareViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        company = self.get_object()
+        tenant = company.tenant
+        if tenant is None:
+            company.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        is_admin = TenantUser.objects.filter(
+            tenant=tenant, user=request.user, role="ADMIN", is_active=True
+        ).exists()
+        if not is_admin:
+            raise PermissionDenied("Only an admin can delete the company.")
+
+        company_name = company.company_name
+        company_id = company.company_id
+        recipient = request.user.email
+
+        from .backup_service import _delete_tenant_data
+
+        Ledger.objects.filter(account__tenant_id=tenant.id).delete()
+        _delete_tenant_data(tenant.id)
+        tenant.delete()
+
+        try:
+            send_company_deletion_email_task.delay(recipient, company_name, company_id)
+        except Exception:
+            logger.exception("Failed to queue company deletion email.")
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ConnectCAViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def create(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        if not tenant_id:
+            return Response(
+                {"detail": "No tenant selected."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        email = (request.data.get("email") or "").strip().lower()
+        if not email:
+            return Response(
+                {"detail": "Email is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            tenant = Tenant.objects.get(pk=tenant_id)
+        except Tenant.DoesNotExist:
+            return Response(
+                {"detail": "Tenant not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        user, created = User.objects.get_or_create(
+            email=email,
+            defaults={"is_active": True},
+        )
+        if created:
+            user.set_unusable_password()
+            user.save()
+
+        obj, obj_created = TenantUser.objects.get_or_create(
+            tenant=tenant,
+            user=user,
+            defaults={"role": "ACCOUNTANT", "is_active": True},
+        )
+        if not obj_created and obj.role != "ACCOUNTANT":
+            obj.role = "ACCOUNTANT"
+            obj.is_active = True
+            obj.save()
+
+        if created or obj_created:
+            try:
+                send_invitation_email_task.delay(
+                    to_email=user.email,
+                    company_name=tenant.name,
+                    invited_by=request.user.email,
+                    tenant_id=tenant.id,
+                )
+            except Exception as exc:
+                logger.exception("Failed to queue invitation email to %s: %s", user.email, exc)
+
+        return Response(
+            {
+                "id": obj.id,
+                "email": user.email,
+                "role": obj.role,
+                "tenant": tenant.id,
+                "created": created or obj_created,
+            },
+            status=status.HTTP_201_CREATED if (created or obj_created) else status.HTTP_200_OK,
+        )
+
+    def list(self, request):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        if not tenant_id:
+            return Response([])
+        rows = TenantUser.objects.filter(tenant_id=tenant_id, is_active=True).select_related(
+            "user"
+        )
+        return Response(
+            [
+                {
+                    "id": row.id,
+                    "email": row.user.email,
+                    "name": f"{row.user.first_name} {row.user.last_name}".strip(),
+                    "role": row.role,
+                }
+                for row in rows
+            ]
+        )
+
+    def destroy(self, request, pk=None):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        if not tenant_id:
+            return Response(
+                {"detail": "No tenant selected."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            row = TenantUser.objects.get(pk=pk, tenant_id=tenant_id)
+        except TenantUser.DoesNotExist:
+            return Response(
+                {"detail": "Connection not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if (
+            row.role == "ADMIN"
+            and TenantUser.objects.filter(
+                tenant_id=tenant_id, role="ADMIN", is_active=True
+            ).count()
+            <= 1
+        ):
+            return Response(
+                {"detail": "Cannot remove the last admin."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        row.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # =====================

@@ -6,12 +6,14 @@ from .views import (
     CustomTokenObtainPairView,
     LogoutView,
     RequestPasswordResetView,
+    SecurityViewSet,
     SendOtpView,
     SetNewPasswordView,
     UserRegistrationView,
 )
 
 router = DefaultRouter()
+router.register(r"security", SecurityViewSet, basename="security")
 # Register viewsets for core app here, e.g.:
 # router.register(r'users', UserViewSet)
 # router.register(r'tenants', TenantViewSet)

@@ -7,12 +7,14 @@ from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import generics, status
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.viewsets import ViewSet
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import User
+from .models import LoginActivity, User, UserSession
 from .serializers import UserRegistrationSerializer, UserSerializer
 
 
@@ -29,6 +31,132 @@ def send_password_reset_email(user, request):
         },
     )
     send_mail(mail_subject, message, settings.DEFAULT_FROM_EMAIL, [user.email])
+
+
+def _get_client_ip(request):
+    xff = request.META.get("HTTP_X_FORWARDED_FOR")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
+
+def _parse_device(ua):
+    ua = ua or ""
+    if "Mobile" in ua:
+        return "Mobile device"
+    if "Windows" in ua:
+        return "Windows device"
+    if "Macintosh" in ua or "Mac OS" in ua:
+        return "Mac device"
+    if "Linux" in ua:
+        return "Linux device"
+    return "Unknown device"
+
+
+def _device_type(ua):
+    ua = ua or ""
+    if "Mobile" in ua:
+        return "mobile"
+    if "iPad" in ua or "Tablet" in ua:
+        return "tablet"
+    return "web"
+
+
+class SecurityViewSet(ViewSet):
+    permission_classes = (IsAuthenticated,)
+
+    @action(detail=False, methods=["post"])
+    def change_password(self, request):
+        current = request.data.get("current_password")
+        new_password = request.data.get("new_password")
+        confirm_password = request.data.get("confirm_password")
+
+        if not current or not new_password or not confirm_password:
+            return Response(
+                {"detail": "All password fields are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = request.user
+        if not user.check_password(current):
+            return Response(
+                {"detail": "Current password is incorrect."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new_password != confirm_password:
+            return Response(
+                {"detail": "New passwords do not match."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(new_password) < 8:
+            return Response(
+                {"detail": "New password must be at least 8 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.set_password(new_password)
+        user.save()
+        # Invalidate all other sessions (keep current token)
+        UserSession.objects.filter(user=user).exclude(is_current=True).update(is_active=False)
+        return Response({"detail": "Password changed successfully."})
+
+    @action(detail=False, methods=["get"])
+    def sessions(self, request):
+        rows = UserSession.objects.filter(user=request.user).order_by("-last_active_at")
+        return Response(
+            [
+                {
+                    "id": s.id,
+                    "device": s.device,
+                    "device_type": s.device_type,
+                    "ip_address": s.ip_address,
+                    "location": s.location,
+                    "is_current": s.is_current,
+                    "is_active": s.is_active,
+                    "last_active_at": s.last_active_at.isoformat(),
+                }
+                for s in rows
+            ]
+        )
+
+    @action(detail=True, methods=["post"])
+    def revoke_session(self, request, pk=None):
+        session = UserSession.objects.filter(pk=pk, user=request.user).first()
+        if not session:
+            return Response(
+                {"detail": "Session not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if session.is_current:
+            return Response(
+                {"detail": "Cannot revoke the current session."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        session.is_active = False
+        session.save()
+        return Response({"detail": "Session revoked."})
+
+    @action(detail=False, methods=["post"])
+    def revoke_all(self, request):
+        UserSession.objects.filter(user=request.user).exclude(is_current=True).update(
+            is_active=False
+        )
+        return Response({"detail": "All other sessions revoked."})
+
+    @action(detail=False, methods=["get"])
+    def login_activity(self, request):
+        rows = LoginActivity.objects.filter(user=request.user)[:20]
+        return Response(
+            [
+                {
+                    "id": a.id,
+                    "ip_address": a.ip_address,
+                    "location": a.location,
+                    "device": a.device,
+                    "success": a.success,
+                    "created_at": a.created_at.isoformat(),
+                }
+                for a in rows
+            ]
+        )
 
 
 class SendOtpView(generics.GenericAPIView):
@@ -103,8 +231,33 @@ class UserRegistrationView(generics.CreateAPIView):
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
-    # This view already handles obtaining tokens with username/password
-    pass
+    def post(self, request, *args, **kwargs):
+        ip = _get_client_ip(request)
+        ua = request.META.get("HTTP_USER_AGENT", "")
+        device = _parse_device(ua)
+        response = super().post(request, *args, **kwargs)
+        email = request.data.get("email", "")
+        user = User.objects.filter(email=email).first()
+        if response.status_code == status.HTTP_200_OK and user:
+            LoginActivity.objects.create(
+                user=user, ip_address=ip, device=device, user_agent=ua, success=True
+            )
+            token = response.data.get("access", "")
+            session = UserSession.objects.create(
+                user=user,
+                device=device,
+                device_type=_device_type(ua),
+                ip_address=ip,
+                user_agent=ua,
+                token=token,
+                is_current=True,
+            )
+            UserSession.objects.filter(user=user).exclude(pk=session.pk).update(is_current=False)
+        elif response.status_code != status.HTTP_200_OK and user:
+            LoginActivity.objects.create(
+                user=user, ip_address=ip, device=device, user_agent=ua, success=False
+            )
+        return response
 
 
 class LogoutView(generics.GenericAPIView):
