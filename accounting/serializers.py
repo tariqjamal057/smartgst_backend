@@ -113,7 +113,20 @@ class FinancialYearSerializer(serializers.ModelSerializer):
 
 
 # --- Sales Invoice Serializers ---
+class VoucherSerializer(serializers.ModelSerializer):
+    financial_year = serializers.PrimaryKeyRelatedField(
+        queryset=FinancialYear.objects.all(),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
+
 class SalesInvoiceItemSerializer(serializers.ModelSerializer):
+    item = serializers.PrimaryKeyRelatedField(
+        queryset=Item.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = SalesInvoiceItem
         fields = [
@@ -135,7 +148,7 @@ class SalesInvoiceItemSerializer(serializers.ModelSerializer):
         ]
 
 
-class SalesInvoiceSerializer(serializers.ModelSerializer):
+class SalesInvoiceSerializer(VoucherSerializer):
     items = SalesInvoiceItemSerializer(many=True)
 
     class Meta:
@@ -173,6 +186,10 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
 
 # --- Purchase Bill Serializers ---
 class PurchaseBillItemSerializer(serializers.ModelSerializer):
+    item = serializers.PrimaryKeyRelatedField(
+        queryset=Item.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = PurchaseBillItem
         fields = [
@@ -194,7 +211,7 @@ class PurchaseBillItemSerializer(serializers.ModelSerializer):
         ]
 
 
-class PurchaseBillSerializer(serializers.ModelSerializer):
+class PurchaseBillSerializer(VoucherSerializer):
     items = PurchaseBillItemSerializer(many=True)
 
     class Meta:
@@ -231,13 +248,13 @@ class PurchaseBillSerializer(serializers.ModelSerializer):
 
 
 # --- Other Voucher Serializers ---
-class ReceiptVoucherSerializer(serializers.ModelSerializer):
+class ReceiptVoucherSerializer(VoucherSerializer):
     class Meta:
         model = ReceiptVoucher
         fields = "__all__"
 
 
-class PaymentVoucherSerializer(serializers.ModelSerializer):
+class PaymentVoucherSerializer(VoucherSerializer):
     class Meta:
         model = PaymentVoucher
         fields = "__all__"
@@ -249,7 +266,7 @@ class JournalVoucherEntrySerializer(serializers.ModelSerializer):
         fields = ["account", "debit", "credit"]
 
 
-class JournalVoucherSerializer(serializers.ModelSerializer):
+class JournalVoucherSerializer(VoucherSerializer):
     entries = JournalVoucherEntrySerializer(many=True)
 
     class Meta:
@@ -306,12 +323,23 @@ class InvoiceBookSerializer(serializers.ModelSerializer):
 
 # --- Sale Order ---
 class SaleOrderItemSerializer(serializers.ModelSerializer):
+    order = serializers.PrimaryKeyRelatedField(read_only=True)
+    item = serializers.PrimaryKeyRelatedField(
+        queryset=Item.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = SaleOrderItem
         fields = "__all__"
 
 
 class SaleOrderSerializer(serializers.ModelSerializer):
+    financial_year = serializers.PrimaryKeyRelatedField(
+        queryset=FinancialYear.objects.all(),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
     items = SaleOrderItemSerializer(many=True)
 
     class Meta:
@@ -337,12 +365,23 @@ class SaleOrderSerializer(serializers.ModelSerializer):
 
 # --- Purchase Order ---
 class PurchaseOrderItemSerializer(serializers.ModelSerializer):
+    order = serializers.PrimaryKeyRelatedField(read_only=True)
+    item = serializers.PrimaryKeyRelatedField(
+        queryset=Item.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = PurchaseOrderItem
         fields = "__all__"
 
 
 class PurchaseOrderSerializer(serializers.ModelSerializer):
+    financial_year = serializers.PrimaryKeyRelatedField(
+        queryset=FinancialYear.objects.all(),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
     items = PurchaseOrderItemSerializer(many=True)
 
     class Meta:
@@ -398,7 +437,7 @@ class DeliveryChallanSerializer(serializers.ModelSerializer):
 
 
 # --- Contra Voucher ---
-class ContraVoucherSerializer(serializers.ModelSerializer):
+class ContraVoucherSerializer(VoucherSerializer):
     class Meta:
         model = ContraVoucher
         fields = "__all__"
@@ -411,7 +450,7 @@ class CreditNoteItemSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class CreditNoteSerializer(serializers.ModelSerializer):
+class CreditNoteSerializer(VoucherSerializer):
     items = CreditNoteItemSerializer(many=True)
 
     class Meta:
@@ -442,7 +481,7 @@ class DebitNoteItemSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class DebitNoteSerializer(serializers.ModelSerializer):
+class DebitNoteSerializer(VoucherSerializer):
     items = DebitNoteItemSerializer(many=True)
 
     class Meta:

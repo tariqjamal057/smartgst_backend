@@ -158,13 +158,31 @@ class CompanySplitViewSet(viewsets.ViewSet):
         return Response(result, status=status.HTTP_201_CREATED)
 
 
-class BaseVoucherViewSet(TenantAwareViewSet):
+class FinancialYearProvisionMixin:
+    def _get_current_financial_year(self, tenant_id):
+        today = date.today()
+        start_year = today.year if today.month >= 4 else today.year - 1
+        start = date(start_year, 4, 1)
+        end = date(start_year + 1, 3, 31)
+        fy, _ = FinancialYear.objects.get_or_create(
+            tenant_id=tenant_id,
+            start_date=start,
+            defaults={"end_date": end, "is_locked": False},
+        )
+        return fy
 
     def perform_create(self, serializer):
         financial_year = serializer.validated_data.get("financial_year")
+        if financial_year is None:
+            tenant_id = self.request.META.get("HTTP_X_TENANT_ID")
+            financial_year = self._get_current_financial_year(tenant_id)
+            serializer.validated_data["financial_year"] = financial_year
         if financial_year and financial_year.is_locked:
             raise ValidationError(f"Financial year {financial_year} is locked.")
         super().perform_create(serializer)
+
+
+class BaseVoucherViewSet(FinancialYearProvisionMixin, TenantAwareViewSet):
 
     def perform_update(self, serializer):
         if serializer.instance.is_posted:
@@ -297,12 +315,12 @@ class InvoiceBookViewSet(TenantAwareViewSet):
     serializer_class = InvoiceBookSerializer
 
 
-class SaleOrderViewSet(TenantAwareViewSet):
+class SaleOrderViewSet(FinancialYearProvisionMixin, TenantAwareViewSet):
     queryset = SaleOrder.objects.all()
     serializer_class = SaleOrderSerializer
 
 
-class PurchaseOrderViewSet(TenantAwareViewSet):
+class PurchaseOrderViewSet(FinancialYearProvisionMixin, TenantAwareViewSet):
     queryset = PurchaseOrder.objects.all()
     serializer_class = PurchaseOrderSerializer
 
