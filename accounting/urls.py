@@ -20,12 +20,15 @@ from .views import (
     DeliveryChallanViewSet,
     DocumentViewSet,
     FinancialYearViewSet,
+    GodownViewSet,
     GstLookupViewSet,
     GSTR1ViewSet,
     GSTR2ViewSet,
     GSTR3BViewSet,
     GSTR7ViewSet,
     HSNSACViewSet,
+    InvoiceBookViewSet,
+    InvoicePreferencesViewSet,
     InvoiceSettingViewSet,
     ItemCategoryViewSet,
     ItemViewSet,
@@ -59,6 +62,7 @@ router.register(r"accounts", AccountViewSet)
 router.register(r"parties", PartyViewSet)
 router.register(r"items", ItemViewSet)
 router.register(r"item-categories", ItemCategoryViewSet)
+router.register(r"godowns", GodownViewSet)
 router.register(r"sales-invoices", SalesInvoiceViewSet)
 router.register(r"purchase-bills", PurchaseBillViewSet)
 router.register(r"receipt-vouchers", ReceiptVoucherViewSet)
@@ -66,6 +70,8 @@ router.register(r"payment-vouchers", PaymentVoucherViewSet)
 router.register(r"journal-vouchers", JournalVoucherViewSet)
 router.register(r"transactions", TransactionViewSet)
 router.register(r"invoice-settings", InvoiceSettingViewSet)
+router.register(r"invoice-preferences", InvoicePreferencesViewSet)
+router.register(r"invoice-books", InvoiceBookViewSet)
 router.register(r"sale-orders", SaleOrderViewSet)
 router.register(r"purchase-orders", PurchaseOrderViewSet)
 router.register(r"delivery-challans", DeliveryChallanViewSet)

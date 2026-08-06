@@ -85,6 +85,33 @@ class InvoiceSetting(TenantAwareModel):
         return f"{self.voucher_type} - {self.prefix}{number}{self.suffix}"
 
 
+class InvoicePreferences(TenantAwareModel):
+    default_settings = models.JSONField(default=dict, blank=True)
+    printing_settings = models.JSONField(default=dict, blank=True)
+    voucher_config = models.JSONField(default=dict, blank=True)
+    ref_config = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name_plural = "Invoice Preferences"
+        unique_together = [["tenant"]]
+
+    def __str__(self):
+        return f"Invoice Preferences (tenant {self.tenant_id})"
+
+
+class InvoiceBook(TenantAwareModel):
+    name = models.CharField(max_length=100)
+    under = models.CharField(max_length=100, blank=True, default="sale")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name_plural = "Invoice Books"
+        unique_together = [["tenant", "name"]]
+
+    def __str__(self):
+        return self.name
+
+
 class FinancialYear(TenantAwareModel):
     start_date = models.DateField()
     end_date = models.DateField()
@@ -188,12 +215,26 @@ class Party(TenantAwareModel):
                 },
                 **tenant_filter,
             )
-            party_account = Account.objects.create(
-                name=self.name,
-                account_type=parent_account.account_type,
-                parent=parent_account,
-                tenant=self.tenant,
+
+            existing = (
+                Account.objects.filter(name=self.name, **tenant_filter)
+                .exclude(party_account__isnull=False)
+                .first()
             )
+            if existing is not None:
+                party_account = existing
+            else:
+                account_name = self.name
+                index = 1
+                while Account.objects.filter(name=account_name, **tenant_filter).exists():
+                    index += 1
+                    account_name = f"{self.name} ({index})"
+                party_account = Account.objects.create(
+                    name=account_name,
+                    account_type=parent_account.account_type,
+                    parent=parent_account,
+                    tenant=self.tenant,
+                )
             self.account = party_account
             self.save(update_fields=["account"])
 
@@ -204,6 +245,19 @@ class ItemCategory(TenantAwareModel):
 
     class Meta:
         verbose_name_plural = "Item Categories"
+        unique_together = [["tenant", "name"]]
+
+    def __str__(self):
+        return self.name
+
+
+class Godown(TenantAwareModel):
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    address = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name_plural = "Godowns"
         unique_together = [["tenant", "name"]]
 
     def __str__(self):

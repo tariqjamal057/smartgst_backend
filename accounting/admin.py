@@ -13,6 +13,9 @@ from .models import (
     DeliveryChallanItem,
     Document,
     FinancialYear,
+    Godown,
+    InvoiceBook,
+    InvoicePreferences,
     InvoiceSetting,
     Item,
     ItemCategory,
@@ -43,6 +46,16 @@ class InvoiceSettingAdmin(admin.ModelAdmin):
     list_display = ["voucher_type", "prefix", "next_number", "is_active"]
 
 
+@admin.register(InvoicePreferences)
+class InvoicePreferencesAdmin(admin.ModelAdmin):
+    list_display = ["id", "tenant"]
+
+
+@admin.register(InvoiceBook)
+class InvoiceBookAdmin(admin.ModelAdmin):
+    list_display = ["name", "under", "is_active"]
+
+
 @admin.register(CompanySetting)
 class CompanySettingAdmin(admin.ModelAdmin):
     list_display = ["company_name", "gstin", "state", "email", "is_active"]
@@ -67,6 +80,11 @@ class PartyAdmin(admin.ModelAdmin):
 @admin.register(ItemCategory)
 class ItemCategoryAdmin(admin.ModelAdmin):
     list_display = ["name", "hsn_code"]
+
+
+@admin.register(Godown)
+class GodownAdmin(admin.ModelAdmin):
+    list_display = ["name", "description"]
 
 
 @admin.register(Item)

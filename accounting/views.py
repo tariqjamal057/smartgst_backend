@@ -3,6 +3,7 @@ import logging
 from datetime import date
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.db.models import Q, Sum
 from django.http import HttpResponse
 from rest_framework import permissions, status, viewsets
@@ -25,6 +26,9 @@ from .models import (
     DeliveryChallan,
     Document,
     FinancialYear,
+    Godown,
+    InvoiceBook,
+    InvoicePreferences,
     InvoiceSetting,
     Item,
     ItemCategory,
@@ -53,6 +57,9 @@ from .serializers import (
     DeliveryChallanSerializer,
     DocumentSerializer,
     FinancialYearSerializer,
+    GodownSerializer,
+    InvoiceBookSerializer,
+    InvoicePreferencesSerializer,
     InvoiceSettingSerializer,
     ItemCategorySerializer,
     ItemSerializer,
@@ -196,15 +203,43 @@ class AccountViewSet(TenantAwareViewSet):
     queryset = Account.objects.all()
     serializer_class = AccountSerializer
 
+    def perform_create(self, serializer):
+        try:
+            super().perform_create(serializer)
+        except IntegrityError:
+            name = serializer.validated_data.get("name")
+            raise ValidationError(f"An account named '{name}' already exists in this company.")
+
 
 class PartyViewSet(TenantAwareViewSet):
     queryset = Party.objects.all()
     serializer_class = PartySerializer
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        party_type = self.request.query_params.get("type") or self.request.query_params.get(
+            "party_type"
+        )
+        if party_type and party_type.strip().upper() in Party.PartyType.values:
+            qs = qs.filter(party_type=party_type.strip().upper())
+        return qs
+
+    def perform_create(self, serializer):
+        try:
+            super().perform_create(serializer)
+        except IntegrityError:
+            name = serializer.validated_data.get("name")
+            raise ValidationError(f"A party named '{name}' already exists in this company.")
+
 
 class ItemCategoryViewSet(TenantAwareViewSet):
     queryset = ItemCategory.objects.all()
     serializer_class = ItemCategorySerializer
+
+
+class GodownViewSet(TenantAwareViewSet):
+    queryset = Godown.objects.all()
+    serializer_class = GodownSerializer
 
 
 class ItemViewSet(TenantAwareViewSet):
@@ -245,6 +280,21 @@ class TransactionViewSet(TenantAwareViewSet):
 class InvoiceSettingViewSet(TenantAwareViewSet):
     queryset = InvoiceSetting.objects.all()
     serializer_class = InvoiceSettingSerializer
+
+
+class InvoicePreferencesViewSet(TenantAwareViewSet):
+    queryset = InvoicePreferences.objects.all()
+    serializer_class = InvoicePreferencesSerializer
+
+    def list(self, request, *args, **kwargs):
+        tenant_id = request.META.get("HTTP_X_TENANT_ID")
+        obj, _ = InvoicePreferences.objects.get_or_create(tenant_id=tenant_id)
+        return Response(self.get_serializer(obj).data)
+
+
+class InvoiceBookViewSet(TenantAwareViewSet):
+    queryset = InvoiceBook.objects.all()
+    serializer_class = InvoiceBookSerializer
 
 
 class SaleOrderViewSet(TenantAwareViewSet):

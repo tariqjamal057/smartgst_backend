@@ -13,11 +13,15 @@ from .models import (
     DeliveryChallanItem,
     Document,
     FinancialYear,
+    Godown,
+    InvoiceBook,
+    InvoicePreferences,
     InvoiceSetting,
     Item,
     ItemCategory,
     JournalVoucher,
     JournalVoucherEntry,
+    Ledger,
     Party,
     PaymentVoucher,
     PurchaseBill,
@@ -52,14 +56,37 @@ class AccountSerializer(serializers.ModelSerializer):
 
 
 class PartySerializer(serializers.ModelSerializer):
+    balance = serializers.SerializerMethodField()
+    address = serializers.SerializerMethodField()
+    contact = serializers.SerializerMethodField()
+
     class Meta:
         model = Party
         fields = "__all__"
+
+    def get_balance(self, obj):
+        if not obj.account_id:
+            return 0
+        entries = Ledger.objects.filter(account_id=obj.account_id)
+        total = sum(float(e.debit or 0) - float(e.credit or 0) for e in entries)
+        return round(total, 2)
+
+    def get_address(self, obj):
+        return obj.billing_address or ""
+
+    def get_contact(self, obj):
+        return obj.phone or ""
 
 
 class ItemCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ItemCategory
+        fields = "__all__"
+
+
+class GodownSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Godown
         fields = "__all__"
 
 
@@ -263,6 +290,18 @@ class InvoiceSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceSetting
         fields = "__all__"
+
+
+class InvoicePreferencesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvoicePreferences
+        fields = "__all__"
+
+
+class InvoiceBookSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvoiceBook
+        fields = ["id", "name", "under", "is_active"]
 
 
 # --- Sale Order ---

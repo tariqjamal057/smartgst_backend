@@ -6,6 +6,7 @@ The new tenant receives a fresh company id, a copy of the master data
 source ledger, plus the current closing stock on items.
 """
 
+import copy
 from datetime import timedelta
 from decimal import Decimal
 
@@ -18,6 +19,9 @@ from .models import (
     Account,
     CompanySetting,
     FinancialYear,
+    Godown,
+    InvoiceBook,
+    InvoicePreferences,
     InvoiceSetting,
     Item,
     ItemCategory,
@@ -39,12 +43,15 @@ def _add_years(date_obj, years):
         return date_obj.replace(year=date_obj.year + years, day=28)
 
 
-def _copy_fields(source, target, exclude=()):
+def _copy_fields(source, target, exclude=(), deep=False):
     for field in source._meta.concrete_fields:
         name = field.name
         if name in exclude or name in ("id", "uuid", "tenant"):
             continue
-        setattr(target, name, getattr(source, name))
+        value = getattr(source, name)
+        if deep and isinstance(value, (dict, list)):
+            value = copy.deepcopy(value)
+        setattr(target, name, value)
 
 
 @transaction.atomic
@@ -93,6 +100,11 @@ def split_company(tenant, user, split_date):
         _copy_fields(category, new_cat)
         new_cat.save()
         new_categories[category.id] = new_cat
+
+    for godown in Godown.objects.filter(tenant_id=tenant.id):
+        new_godown = Godown(tenant=new_tenant)
+        _copy_fields(godown, new_godown)
+        new_godown.save()
 
     new_items = {}
     for item in old_items:
@@ -143,6 +155,18 @@ def split_company(tenant, user, split_date):
         new_setting = InvoiceSetting(tenant=new_tenant)
         _copy_fields(setting, new_setting)
         new_setting.save()
+
+    # Copy invoice preferences (default, printing and voucher configs).
+    for pref in InvoicePreferences.objects.filter(tenant_id=tenant.id):
+        new_pref = InvoicePreferences(tenant=new_tenant)
+        _copy_fields(pref, new_pref, deep=True)
+        new_pref.save()
+
+    # Copy invoice books.
+    for book in InvoiceBook.objects.filter(tenant_id=tenant.id):
+        new_book = InvoiceBook(tenant=new_tenant)
+        _copy_fields(book, new_book)
+        new_book.save()
 
     _create_opening_balance(tenant.id, new_tenant, new_accounts, financial_year, split_date)
 
