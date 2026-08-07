@@ -330,7 +330,7 @@ class PurchaseOrderViewSet(FinancialYearProvisionMixin, TenantAwareViewSet):
     serializer_class = PurchaseOrderSerializer
 
 
-class DeliveryChallanViewSet(TenantAwareViewSet):
+class DeliveryChallanViewSet(FinancialYearProvisionMixin, TenantAwareViewSet):
     queryset = DeliveryChallan.objects.all()
     serializer_class = DeliveryChallanSerializer
 

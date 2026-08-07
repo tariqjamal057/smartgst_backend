@@ -425,6 +425,7 @@ class PurchaseOrder(BaseOrder):
     payment_terms = models.TextField(blank=True)
     delivery_date = models.DateField(null=True, blank=True)
     transporter_name = models.CharField(max_length=100, blank=True)
+    transporter_gstin = models.CharField(max_length=50, blank=True)
     vehicle_no = models.CharField(max_length=50, blank=True)
     lr_rr_no = models.CharField(max_length=50, blank=True)
     port_of_export = models.CharField(max_length=100, blank=True)

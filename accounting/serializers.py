@@ -407,6 +407,8 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
 
 # --- Delivery Challan ---
 class DeliveryChallanItemSerializer(serializers.ModelSerializer):
+    challan = serializers.PrimaryKeyRelatedField(read_only=True)
+
     class Meta:
         model = DeliveryChallanItem
         fields = "__all__"
@@ -414,6 +416,12 @@ class DeliveryChallanItemSerializer(serializers.ModelSerializer):
 
 class DeliveryChallanSerializer(serializers.ModelSerializer):
     items = DeliveryChallanItemSerializer(many=True)
+    financial_year = serializers.PrimaryKeyRelatedField(
+        queryset=FinancialYear.objects.all(),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
 
     class Meta:
         model = DeliveryChallan
