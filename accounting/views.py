@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
-from django.db.models import Q, Sum
+from django.db.models import Max, Q, Sum
 from django.http import HttpResponse
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -1115,71 +1115,172 @@ class TrialBalanceViewSet(viewsets.ViewSet):
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
         if tenant_id is None:
-            return Response({"accounts": [], "total_debit": 0, "total_credit": 0})
-        qs = Ledger.objects.all()
-        qs = qs.filter(account__tenant_id=tenant_id)
+            return Response({"groups": [], "total_debit": 0, "total_credit": 0})
+        from_date = _parse_date(request.query_params.get("from_date"))
+        to_date = _parse_date(request.query_params.get("to_date"))
 
-        data = []
         accounts = Account.objects.filter(tenant_id=tenant_id)
+        groups = {}
+        total_d = 0
+        total_c = 0
         for account in accounts:
-            agg = qs.filter(account=account).aggregate(d=Sum("debit"), c=Sum("credit"))
-            data.append(
+            qs = Ledger.objects.filter(account=account)
+            period_qs = qs
+            opening_d = 0
+            opening_c = 0
+            if from_date:
+                opening_d = qs.filter(date__lt=from_date).aggregate(d=Sum("debit"))["d"] or 0
+                opening_c = qs.filter(date__lt=from_date).aggregate(c=Sum("credit"))["c"] or 0
+                period_qs = qs.filter(date__gte=from_date)
+            if to_date:
+                period_qs = period_qs.filter(date__lte=to_date)
+            d = float(period_qs.aggregate(d=Sum("debit"))["d"] or 0)
+            c = float(period_qs.aggregate(c=Sum("credit"))["c"] or 0)
+            group_name = account.parent.name if account.parent else account.account_type.title()
+            groups.setdefault(group_name, []).append(
                 {
-                    "account": account.name,
-                    "account_type": account.account_type,
-                    "debit": float(agg["d"] or 0),
-                    "credit": float(agg["c"] or 0),
+                    "name": account.name,
+                    "debit": d,
+                    "credit": c,
+                    "opening_debit": float(opening_d),
+                    "opening_credit": float(opening_c),
                 }
             )
-        total_d = sum(d["debit"] for d in data)
-        total_c = sum(d["credit"] for d in data)
-        return Response({"accounts": data, "total_debit": total_d, "total_credit": total_c})
+            total_d += d
+            total_c += c
+
+        data = [{"group": g, "children": children} for g, children in groups.items()]
+        return Response({"groups": data, "total_debit": total_d, "total_credit": total_c})
 
 
 class ProfitLossViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
+
+    _DIRECT_EXPENSE_KEYWORDS = (
+        "purchase",
+        "direct",
+        "raw material",
+        "material",
+        "carriage",
+        "freight",
+        "manufactur",
+        "factory",
+        "wages",
+        "cost of",
+        "stock",
+    )
+    _SALES_KEYWORDS = ("sales", "revenue")
 
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
         if tenant_id is None:
             return Response(
                 {
-                    "income": [],
-                    "expenses": [],
-                    "total_income": 0,
-                    "total_expense": 0,
+                    "trading": {},
+                    "income_statement": {},
+                    "gross_profit": 0,
                     "net_profit": 0,
                 }
             )
-        qs = Ledger.objects.all()
-        qs = qs.filter(account__tenant_id=tenant_id)
+        from_date = _parse_date(request.query_params.get("from_date"))
+        to_date = _parse_date(request.query_params.get("to_date"))
+        qs = Ledger.objects.filter(account__tenant_id=tenant_id)
+        if from_date:
+            qs = qs.filter(date__gte=from_date)
+        if to_date:
+            qs = qs.filter(date__lte=to_date)
 
-        income_accounts = Account.objects.filter(account_type=Account.AccountType.REVENUE)
-        expense_accounts = Account.objects.filter(account_type=Account.AccountType.EXPENSE)
-        income_accounts = income_accounts.filter(tenant_id=tenant_id)
-        expense_accounts = expense_accounts.filter(tenant_id=tenant_id)
+        def bucket(label, amounts):
+            return {
+                "total": round(sum(a["amount"] for a in amounts), 2),
+                "items": [{"name": a["name"], "amount": round(a["amount"], 2)} for a in amounts],
+            }
 
-        income = []
-        for a in income_accounts:
+        sales = []
+        indirect_income = []
+        purchases = []
+        direct_expenses = []
+        indirect_expenses = []
+
+        revenue = Account.objects.filter(
+            tenant_id=tenant_id, account_type=Account.AccountType.REVENUE
+        )
+        for a in revenue:
             agg = qs.filter(account=a).aggregate(c=Sum("credit"), d=Sum("debit"))
-            income.append({"name": a.name, "amount": float((agg["c"] or 0) - (agg["d"] or 0))})
+            amount = float((agg["c"] or 0) - (agg["d"] or 0))
+            text = f"{a.name} {a.parent.name if a.parent else ''}".lower()
+            if any(k in text for k in self._SALES_KEYWORDS):
+                sales.append({"name": a.name, "amount": amount})
+            else:
+                indirect_income.append({"name": a.name, "amount": amount})
 
-        expenses = []
-        for a in expense_accounts:
+        expense = Account.objects.filter(
+            tenant_id=tenant_id, account_type=Account.AccountType.EXPENSE
+        )
+        for a in expense:
             agg = qs.filter(account=a).aggregate(d=Sum("debit"), c=Sum("credit"))
-            expenses.append({"name": a.name, "amount": float((agg["d"] or 0) - (agg["c"] or 0))})
+            amount = float((agg["d"] or 0) - (agg["c"] or 0))
+            text = f"{a.name} {a.parent.name if a.parent else ''}".lower()
+            if "purchase" in text:
+                purchases.append({"name": a.name, "amount": amount})
+            elif any(k in text for k in self._DIRECT_EXPENSE_KEYWORDS):
+                direct_expenses.append({"name": a.name, "amount": amount})
+            else:
+                indirect_expenses.append({"name": a.name, "amount": amount})
 
-        total_income = sum(i["amount"] for i in income)
-        total_expense = sum(e["amount"] for e in expenses)
-        net_profit = total_income - total_expense
+        # Stock valuation (opening / closing)
+        stock_items = []
+        opening_total = 0
+        closing_total = 0
+        items = Item.objects.filter(tenant_id=tenant_id)
+        for item in items:
+            rate = float(item.purchase_price or item.at_price or 0)
+            purchase_qty = (
+                PurchaseBillItem.objects.filter(bill__tenant_id=tenant_id, item=item).aggregate(
+                    q=Sum("quantity")
+                )["q"]
+                or 0
+            )
+            sale_qty = (
+                SalesInvoiceItem.objects.filter(invoice__tenant_id=tenant_id, item=item).aggregate(
+                    q=Sum("quantity")
+                )["q"]
+                or 0
+            )
+            opening_qty = float(item.opening_quantity or 0)
+            closing_qty = opening_qty + float(purchase_qty) - float(sale_qty)
+            opening_total += opening_qty * rate
+            closing_total += closing_qty * rate
+            stock_items.append({"name": item.name, "amount": round(closing_qty * rate, 2)})
+
+        sales_total = sum(s["amount"] for s in sales)
+        purchases_total = sum(p["amount"] for p in purchases)
+        direct_total = sum(d["amount"] for d in direct_expenses)
+        opening_total = round(opening_total, 2)
+        closing_total = round(closing_total, 2)
+        gross_profit = sales_total + closing_total - opening_total - purchases_total - direct_total
+        indirect_income_total = sum(i["amount"] for i in indirect_income)
+        indirect_expense_total = sum(i["amount"] for i in indirect_expenses)
+        net_profit = gross_profit + indirect_income_total - indirect_expense_total
 
         return Response(
             {
-                "income": income,
-                "expenses": expenses,
-                "total_income": total_income,
-                "total_expense": total_expense,
-                "net_profit": net_profit,
+                "trading": {
+                    "sales": bucket("sales", sales),
+                    "opening_stock": {
+                        "total": opening_total,
+                        "items": [{"name": "Opening Stock", "amount": opening_total}],
+                    },
+                    "purchases": bucket("purchases", purchases),
+                    "direct_expenses": bucket("direct_expenses", direct_expenses),
+                    "closing_stock": {"total": closing_total, "items": stock_items},
+                },
+                "income_statement": {
+                    "indirect_income": bucket("indirect_income", indirect_income),
+                    "indirect_expenses": bucket("indirect_expenses", indirect_expenses),
+                },
+                "gross_profit": round(gross_profit, 2),
+                "net_profit": round(net_profit, 2),
             }
         )
 
@@ -1190,29 +1291,38 @@ class BalanceSheetViewSet(viewsets.ViewSet):
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
         if tenant_id is None:
-            return Response({"liabilities": [], "equity": [], "assets": []})
+            return Response({"liabilities": [], "assets": [], "total": 0})
         qs = Ledger.objects.all()
         qs = qs.filter(account__tenant_id=tenant_id)
+        from_date = _parse_date(request.query_params.get("from_date"))
+        to_date = _parse_date(request.query_params.get("to_date"))
+        if from_date:
+            qs = qs.filter(date__gte=from_date)
+        if to_date:
+            qs = qs.filter(date__lte=to_date)
 
         def group_accounts(acc_type):
-            accounts = Account.objects.filter(account_type=acc_type)
-            accounts = accounts.filter(tenant_id=tenant_id)
-            groups = []
+            accounts = Account.objects.filter(account_type=acc_type, tenant_id=tenant_id)
+            groups = {}
             for acct in accounts:
-                if acct.parent:
-                    group_name = acct.parent.name
-                else:
-                    group_name = acct.account_type.title()
                 agg = qs.filter(account=acct).aggregate(d=Sum("debit"), c=Sum("credit"))
                 balance = float((agg["d"] or 0) - (agg["c"] or 0))
-                groups.append({"name": acct.name, "group": group_name, "amount": abs(balance)})
-            return groups
+                if acc_type == Account.AccountType.ASSET:
+                    balance = abs(balance)
+                group_name = acct.parent.name if acct.parent else acct.account_type.title()
+                group = groups.setdefault(
+                    group_name, {"group": group_name, "total": 0, "items": []}
+                )
+                group["items"].append({"name": acct.name, "amount": round(abs(balance), 2)})
+            for group in groups.values():
+                group["total"] = round(sum(i["amount"] for i in group["items"]), 2)
+            return list(groups.values())
 
         liabilities = group_accounts(Account.AccountType.LIABILITY)
-        equity = group_accounts(Account.AccountType.EQUITY)
         assets = group_accounts(Account.AccountType.ASSET)
 
-        data = {"liabilities": liabilities, "equity": equity, "assets": assets}
+        total = round(sum(g["total"] for g in liabilities), 2)
+        data = {"liabilities": liabilities, "assets": assets, "total": total}
         return Response(data)
 
 
@@ -1224,25 +1334,70 @@ class CashFlowViewSet(viewsets.ViewSet):
         if tenant_id is None:
             return Response(
                 {
+                    "transactions": [],
+                    "opening_balance": 0,
                     "total_inflow": 0,
                     "total_outflow": 0,
                     "net_cash_flow": 0,
                 }
             )
+        from_date = _parse_date(request.query_params.get("from_date"))
+        to_date = _parse_date(request.query_params.get("to_date"))
 
-        receipts = ReceiptVoucher.objects.all()
-        payments = PaymentVoucher.objects.all()
-        receipts = receipts.filter(tenant_id=tenant_id)
-        payments = payments.filter(tenant_id=tenant_id)
+        receipts = ReceiptVoucher.objects.filter(tenant_id=tenant_id)
+        payments = PaymentVoucher.objects.filter(tenant_id=tenant_id)
+        opening_receipts = receipts
+        opening_payments = payments
+        if from_date:
+            receipts = receipts.filter(date__gte=from_date)
+            payments = payments.filter(date__gte=from_date)
+            opening_receipts = opening_receipts.filter(date__lt=from_date)
+            opening_payments = opening_payments.filter(date__lt=from_date)
+        if to_date:
+            receipts = receipts.filter(date__lte=to_date)
+            payments = payments.filter(date__lte=to_date)
+            opening_receipts = opening_receipts.filter(date__lte=to_date)
+            opening_payments = opening_payments.filter(date__lte=to_date)
 
-        total_inflow = receipts.aggregate(t=Sum("amount"))["t"] or 0
-        total_outflow = payments.aggregate(t=Sum("amount"))["t"] or 0
+        rows = []
+        for r in receipts.select_related("party"):
+            rows.append(
+                {
+                    "date": r.date,
+                    "type": "Receipt",
+                    "voucher_number": r.voucher_number,
+                    "ledger": r.party.name,
+                    "cash_in": float(r.amount),
+                    "cash_out": 0,
+                }
+            )
+        for p in payments.select_related("party"):
+            rows.append(
+                {
+                    "date": p.date,
+                    "type": "Payment",
+                    "voucher_number": p.voucher_number,
+                    "ledger": p.party.name,
+                    "cash_in": 0,
+                    "cash_out": float(p.amount),
+                }
+            )
+        rows.sort(key=lambda x: (x["date"], x["type"]))
+
+        total_inflow = sum(x["cash_in"] for x in rows)
+        total_outflow = sum(x["cash_out"] for x in rows)
+        opening_balance = float(
+            (opening_receipts.aggregate(t=Sum("amount"))["t"] or 0)
+            - (opening_payments.aggregate(t=Sum("amount"))["t"] or 0)
+        )
 
         return Response(
             {
-                "total_inflow": float(total_inflow),
-                "total_outflow": float(total_outflow),
-                "net_cash_flow": float(total_inflow - total_outflow),
+                "transactions": rows,
+                "opening_balance": round(opening_balance, 2),
+                "total_inflow": round(total_inflow, 2),
+                "total_outflow": round(total_outflow, 2),
+                "net_cash_flow": round(total_inflow - total_outflow, 2),
             }
         )
 
@@ -1459,6 +1614,31 @@ class SaleSummaryViewSet(viewsets.ViewSet):
         qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
+        invoice_rates = {
+            row["invoice_id"]: float(row["m"] or 0)
+            for row in SalesInvoiceItem.objects.filter(invoice__in=qs)
+            .values("invoice_id")
+            .annotate(m=Max("gst_rate"))
+        }
+        hsn_map = {}
+        for item in SalesInvoiceItem.objects.filter(invoice__in=qs).select_related("item"):
+            hsn = item.item.hsn_code if item.item else "UNKNOWN"
+            row = hsn_map.setdefault(
+                hsn,
+                {
+                    "hsn_code": hsn,
+                    "description": item.item.name if item.item else "",
+                    "taxable_value": 0,
+                    "total_gst": 0,
+                    "gst_rate": 0,
+                },
+            )
+            row["taxable_value"] += float(item.taxable_value)
+            row["total_gst"] += (
+                float(item.cgst) + float(item.sgst) + float(item.igst) + float(item.cess)
+            )
+            row["gst_rate"] = float(item.gst_rate or 0) or row["gst_rate"]
+
         data = []
         for inv in qs.select_related("party").order_by("date"):
             data.append(
@@ -1466,6 +1646,10 @@ class SaleSummaryViewSet(viewsets.ViewSet):
                     "id": str(inv.uuid),
                     "date": inv.date,
                     "party_name": inv.party.name if inv.party else "",
+                    "gstin": inv.party.gstin if inv.party else "",
+                    "address": inv.party.billing_address if inv.party else "",
+                    "supply_type": inv.supply_type,
+                    "narration": inv.narration,
                     "voucher_number": inv.voucher_number,
                     "bill_id": inv.bill_id or "",
                     "total_amount": float(inv.total_amount),
@@ -1473,13 +1657,21 @@ class SaleSummaryViewSet(viewsets.ViewSet):
                     "total_cgst": float(inv.total_cgst),
                     "total_sgst": float(inv.total_sgst),
                     "total_igst": float(inv.total_igst),
+                    "gst_rate": invoice_rates.get(inv.id, 0),
                     "paid": float(inv.paid),
                     "balance": float(inv.balance),
                     "is_posted": inv.is_posted,
                 }
             )
         total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
-        return Response({"sales": data, "total": float(total), "count": len(data)})
+        return Response(
+            {
+                "sales": data,
+                "hsn": list(hsn_map.values()),
+                "total": float(total),
+                "count": len(data),
+            }
+        )
 
 
 class PurchaseSummaryViewSet(viewsets.ViewSet):
@@ -1494,6 +1686,31 @@ class PurchaseSummaryViewSet(viewsets.ViewSet):
         qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
+        invoice_rates = {
+            row["bill_id"]: float(row["m"] or 0)
+            for row in PurchaseBillItem.objects.filter(bill__in=qs)
+            .values("bill_id")
+            .annotate(m=Max("gst_rate"))
+        }
+        hsn_map = {}
+        for item in PurchaseBillItem.objects.filter(bill__in=qs).select_related("item"):
+            hsn = item.item.hsn_code if item.item else "UNKNOWN"
+            row = hsn_map.setdefault(
+                hsn,
+                {
+                    "hsn_code": hsn,
+                    "description": item.item.name if item.item else "",
+                    "taxable_value": 0,
+                    "total_gst": 0,
+                    "gst_rate": 0,
+                },
+            )
+            row["taxable_value"] += float(item.taxable_value)
+            row["total_gst"] += (
+                float(item.cgst) + float(item.sgst) + float(item.igst) + float(item.cess)
+            )
+            row["gst_rate"] = float(item.gst_rate or 0) or row["gst_rate"]
+
         data = []
         for bill in qs.select_related("party").order_by("date"):
             data.append(
@@ -1501,6 +1718,10 @@ class PurchaseSummaryViewSet(viewsets.ViewSet):
                     "id": str(bill.uuid),
                     "date": bill.date,
                     "party_name": bill.party.name if bill.party else "",
+                    "gstin": bill.party.gstin if bill.party else "",
+                    "address": bill.party.billing_address if bill.party else "",
+                    "supply_type": bill.supply_type,
+                    "narration": bill.narration,
                     "voucher_number": bill.voucher_number,
                     "bill_id": bill.bill_id or "",
                     "total_amount": float(bill.total_amount),
@@ -1508,13 +1729,21 @@ class PurchaseSummaryViewSet(viewsets.ViewSet):
                     "total_cgst": float(bill.total_cgst),
                     "total_sgst": float(bill.total_sgst),
                     "total_igst": float(bill.total_igst),
+                    "gst_rate": invoice_rates.get(bill.id, 0),
                     "paid": float(bill.paid),
                     "balance": float(bill.balance),
                     "is_posted": bill.is_posted,
                 }
             )
         total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
-        return Response({"purchases": data, "total": float(total), "count": len(data)})
+        return Response(
+            {
+                "purchases": data,
+                "hsn": list(hsn_map.values()),
+                "total": float(total),
+                "count": len(data),
+            }
+        )
 
 
 class SaleReturnSummaryViewSet(viewsets.ViewSet):
@@ -1530,16 +1759,41 @@ class SaleReturnSummaryViewSet(viewsets.ViewSet):
         qs = _date_filter(qs, request)
 
         data = []
-        for ret in qs.select_related("party", "invoice").order_by("date"):
+        for ret in (
+            qs.select_related("party", "invoice").prefetch_related("items").order_by("date")
+        ):
+            taxable = sum(float(i.taxable_value or 0) for i in ret.items.all())
+            total_gst = sum(
+                float(i.cgst or 0) + float(i.sgst or 0) + float(i.igst or 0) + float(i.cess or 0)
+                for i in ret.items.all()
+            )
+            item_rows = [
+                {
+                    "hsn_code": i.item.hsn_code if i.item else "",
+                    "hsn_description": i.item.name if i.item else "",
+                    "quantity": float(i.quantity),
+                    "unit_price": float(i.price),
+                    "taxable_value": float(i.taxable_value),
+                    "gst_rate": float(i.gst_rate),
+                    "total_gst": float(i.cgst) + float(i.sgst) + float(i.igst) + float(i.cess),
+                    "amount": float(i.amount),
+                }
+                for i in ret.items.all()
+            ]
             data.append(
                 {
                     "id": str(ret.uuid),
                     "date": ret.date,
                     "return_number": ret.return_number,
                     "party_name": ret.party.name if ret.party else "",
+                    "gstin": ret.party.gstin if ret.party else "",
+                    "customer_address": ret.party.billing_address if ret.party else "",
                     "invoice_number": ret.invoice.bill_id if ret.invoice else "",
                     "total_amount": float(ret.total_amount),
+                    "taxable_value": round(taxable, 2),
+                    "total_gst": round(total_gst, 2),
                     "reason": ret.reason,
+                    "items": item_rows,
                     "is_settled": ret.is_settled,
                 }
             )
@@ -1560,16 +1814,39 @@ class PurchaseReturnSummaryViewSet(viewsets.ViewSet):
         qs = _date_filter(qs, request)
 
         data = []
-        for ret in qs.select_related("party", "bill").order_by("date"):
+        for ret in qs.select_related("party", "bill").prefetch_related("items").order_by("date"):
+            taxable = sum(float(i.taxable_value or 0) for i in ret.items.all())
+            total_gst = sum(
+                float(i.cgst or 0) + float(i.sgst or 0) + float(i.igst or 0) + float(i.cess or 0)
+                for i in ret.items.all()
+            )
+            item_rows = [
+                {
+                    "hsn_code": i.item.hsn_code if i.item else "",
+                    "hsn_description": i.item.name if i.item else "",
+                    "quantity": float(i.quantity),
+                    "unit_price": float(i.price),
+                    "taxable_value": float(i.taxable_value),
+                    "gst_rate": float(i.gst_rate),
+                    "total_gst": float(i.cgst) + float(i.sgst) + float(i.igst) + float(i.cess),
+                    "amount": float(i.amount),
+                }
+                for i in ret.items.all()
+            ]
             data.append(
                 {
                     "id": str(ret.uuid),
                     "date": ret.date,
                     "return_number": ret.return_number,
                     "party_name": ret.party.name if ret.party else "",
+                    "gstin": ret.party.gstin if ret.party else "",
+                    "vendor_address": ret.party.billing_address if ret.party else "",
                     "bill_number": ret.bill.bill_id if ret.bill else "",
                     "total_amount": float(ret.total_amount),
+                    "taxable_value": round(taxable, 2),
+                    "total_gst": round(total_gst, 2),
                     "reason": ret.reason,
+                    "items": item_rows,
                     "is_settled": ret.is_settled,
                 }
             )
@@ -1589,16 +1866,47 @@ class SaleOrderSummaryViewSet(viewsets.ViewSet):
         qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
+        def supply_type_label(value):
+            return {
+                "REGULAR": "Regular",
+                "SEZ": "SEZ Supply",
+                "EXPORT": "Export",
+            }.get(value, value or "")
+
+        def order_status_label(value):
+            return {
+                "PENDING": "Pending",
+                "CONFIRMED": "Complete",
+                "CANCELLED": "Cancelled",
+            }.get(value, value or "")
+
         data = []
-        for order in qs.select_related("party").order_by("date"):
+        for order in qs.select_related("party").prefetch_related("items").order_by("date"):
+            taxable = sum(float(i.taxable_value or 0) for i in order.items.all())
+            total_cgst = sum(float(i.cgst or 0) for i in order.items.all())
+            total_sgst = sum(float(i.sgst or 0) for i in order.items.all())
+            total_igst = sum(float(i.igst or 0) for i in order.items.all())
+            gst_rate = max((float(i.gst_rate or 0) for i in order.items.all()), default=0)
             data.append(
                 {
                     "id": str(order.uuid),
                     "date": order.date,
                     "order_number": order.order_number,
                     "party_name": order.party.name if order.party else "",
+                    "customer_gstin": order.party.gstin if order.party else "",
+                    "billing_address": order.party.billing_address if order.party else "",
+                    "shipping_address": order.party.shipping_address if order.party else "",
+                    "supply_type": supply_type_label(order.supply_type),
+                    "narration": order.narration,
                     "total_amount": float(order.total_amount),
-                    "status": order.status,
+                    "taxable_value": round(taxable, 2),
+                    "total_gst": round(total_cgst + total_sgst + total_igst, 2),
+                    "total_cgst": round(total_cgst, 2),
+                    "total_sgst": round(total_sgst, 2),
+                    "total_igst": round(total_igst, 2),
+                    "gst_rate": gst_rate,
+                    "item_count": order.items.count(),
+                    "status": order_status_label(order.status),
                     "is_converted": order.is_converted,
                 }
             )
@@ -1618,17 +1926,53 @@ class DeliveryChallanSummaryViewSet(viewsets.ViewSet):
         qs = qs.filter(tenant_id=tenant_id)
         qs = _date_filter(qs, request)
 
+        def challan_type_label(value):
+            return {
+                "SALES": "Sales",
+                "PURCHASE_RETURN": "Purchase Return",
+                "JOB_WORK": "Job Work",
+                "FREE": "Free",
+            }.get(value, value or "")
+
+        def status_label(value):
+            return {
+                "DRAFT": "Pending",
+                "DELIVERED": "Complete",
+                "CANCELLED": "Cancelled",
+            }.get(value, value or "")
+
         data = []
-        for dc in qs.select_related("party").order_by("date"):
+        for dc in qs.select_related("party").prefetch_related("items").order_by("date"):
+            taxable = sum(float(i.taxable_value or 0) for i in dc.items.all())
+            total_cgst = sum(float(i.cgst or 0) for i in dc.items.all())
+            total_sgst = sum(float(i.sgst or 0) for i in dc.items.all())
+            total_igst = sum(float(i.igst or 0) for i in dc.items.all())
+            gst_rate = max((float(i.gst_rate or 0) for i in dc.items.all()), default=0)
+            transport = " ".join(filter(None, [dc.transporter_name, dc.vehicle_no, dc.lr_rr_no]))
             data.append(
                 {
                     "id": str(dc.uuid),
                     "date": dc.date,
                     "challan_number": dc.challan_number,
-                    "challan_type": dc.challan_type,
+                    "challan_type": challan_type_label(dc.challan_type),
+                    "raw_challan_type": dc.challan_type,
                     "party_name": dc.party.name if dc.party else "",
+                    "customer_gstin": dc.party.gstin if dc.party else "",
+                    "billing_address": dc.party.billing_address if dc.party else "",
+                    "shipping_address": dc.party.shipping_address if dc.party else "",
                     "total_amount": float(dc.total_amount),
-                    "status": dc.status,
+                    "taxable_value": round(taxable, 2),
+                    "total_gst": round(total_cgst + total_sgst + total_igst, 2),
+                    "total_cgst": round(total_cgst, 2),
+                    "total_sgst": round(total_sgst, 2),
+                    "total_igst": round(total_igst, 2),
+                    "gst_rate": gst_rate,
+                    "transporter_name": dc.transporter_name or "",
+                    "vehicle_no": dc.vehicle_no or "",
+                    "lr_rr_no": dc.lr_rr_no or "",
+                    "transport_details": transport,
+                    "item_count": dc.items.count(),
+                    "status": status_label(dc.status),
                     "is_invoiced": dc.is_invoiced,
                 }
             )
@@ -1670,6 +2014,7 @@ class StockSummaryViewSet(viewsets.ViewSet):
                     "name": item.name,
                     "hsn_code": item.hsn_code or "",
                     "category": item.category.name if item.category else "",
+                    "unit": item.primary_unit or "",
                     "opening_quantity": float(item.opening_quantity or 0),
                     "sale_quantity": float(sale_qty),
                     "purchase_quantity": float(purchase_qty),
@@ -1678,6 +2023,7 @@ class StockSummaryViewSet(viewsets.ViewSet):
                     ),
                     "sale_price": float(item.sale_price or 0),
                     "purchase_price": float(item.purchase_price or 0),
+                    "rate": float(item.purchase_price or item.at_price or 0),
                     "mrp": float(item.mrp or 0),
                 }
             )
@@ -1693,6 +2039,10 @@ class HSNSACViewSet(viewsets.ViewSet):
         if tenant_id is None:
             return Response({"hsn_summary": [], "count": 0})
 
+        type_param = (request.query_params.get("type") or "").lower()
+        include_sale = not type_param or "purchase" not in type_param
+        include_purchase = not type_param or "sale" not in type_param
+
         sale_items = SalesInvoiceItem.objects.all()
         purchase_items = PurchaseBillItem.objects.all()
         sale_items = sale_items.filter(invoice__tenant_id=tenant_id)
@@ -1701,51 +2051,61 @@ class HSNSACViewSet(viewsets.ViewSet):
         purchase_items = _date_filter(purchase_items, request, date_field="bill__date")
 
         hsn_map = {}
-        for si in sale_items.select_related("item"):
-            hsn = si.item.hsn_code or "UNKNOWN"
-            if hsn not in hsn_map:
-                hsn_map[hsn] = {
-                    "hsn_code": hsn,
-                    "item_name": si.item.name,
-                    "sale_quantity": 0,
-                    "sale_taxable_value": 0,
-                    "sale_cgst": 0,
-                    "sale_sgst": 0,
-                    "sale_igst": 0,
-                    "purchase_quantity": 0,
-                    "purchase_taxable_value": 0,
-                    "purchase_cgst": 0,
-                    "purchase_sgst": 0,
-                    "purchase_igst": 0,
-                }
-            hsn_map[hsn]["sale_quantity"] += float(si.quantity)
-            hsn_map[hsn]["sale_taxable_value"] += float(si.taxable_value)
-            hsn_map[hsn]["sale_cgst"] += float(si.cgst)
-            hsn_map[hsn]["sale_sgst"] += float(si.sgst)
-            hsn_map[hsn]["sale_igst"] += float(si.igst)
 
-        for pi in purchase_items.select_related("item"):
-            hsn = pi.item.hsn_code or "UNKNOWN"
-            if hsn not in hsn_map:
-                hsn_map[hsn] = {
-                    "hsn_code": hsn,
-                    "item_name": pi.item.name,
-                    "sale_quantity": 0,
-                    "sale_taxable_value": 0,
-                    "sale_cgst": 0,
-                    "sale_sgst": 0,
-                    "sale_igst": 0,
-                    "purchase_quantity": 0,
-                    "purchase_taxable_value": 0,
-                    "purchase_cgst": 0,
-                    "purchase_sgst": 0,
-                    "purchase_igst": 0,
-                }
-            hsn_map[hsn]["purchase_quantity"] += float(pi.quantity)
-            hsn_map[hsn]["purchase_taxable_value"] += float(pi.taxable_value)
-            hsn_map[hsn]["purchase_cgst"] += float(pi.cgst)
-            hsn_map[hsn]["purchase_sgst"] += float(pi.sgst)
-            hsn_map[hsn]["purchase_igst"] += float(pi.igst)
+        def blank(hsn, name, unit):
+            return {
+                "hsn_code": hsn,
+                "item_name": name,
+                "description": name,
+                "unit": unit or "",
+                "rate": 0,
+                "sale_quantity": 0,
+                "sale_taxable_value": 0,
+                "sale_cgst": 0,
+                "sale_sgst": 0,
+                "sale_igst": 0,
+                "purchase_quantity": 0,
+                "purchase_taxable_value": 0,
+                "purchase_cgst": 0,
+                "purchase_sgst": 0,
+                "purchase_igst": 0,
+            }
+
+        if include_sale:
+            for si in sale_items.select_related("item"):
+                hsn = si.item.hsn_code if si.item else "UNKNOWN"
+                row = hsn_map.setdefault(
+                    hsn,
+                    blank(
+                        hsn,
+                        si.item.name if si.item else "",
+                        si.item.primary_unit if si.item else "",
+                    ),
+                )
+                row["rate"] = float(si.gst_rate or 0) or row["rate"]
+                row["sale_quantity"] += float(si.quantity)
+                row["sale_taxable_value"] += float(si.taxable_value)
+                row["sale_cgst"] += float(si.cgst)
+                row["sale_sgst"] += float(si.sgst)
+                row["sale_igst"] += float(si.igst)
+
+        if include_purchase:
+            for pi in purchase_items.select_related("item"):
+                hsn = pi.item.hsn_code if pi.item else "UNKNOWN"
+                row = hsn_map.setdefault(
+                    hsn,
+                    blank(
+                        hsn,
+                        pi.item.name if pi.item else "",
+                        pi.item.primary_unit if pi.item else "",
+                    ),
+                )
+                row["rate"] = float(pi.gst_rate or 0) or row["rate"]
+                row["purchase_quantity"] += float(pi.quantity)
+                row["purchase_taxable_value"] += float(pi.taxable_value)
+                row["purchase_cgst"] += float(pi.cgst)
+                row["purchase_sgst"] += float(pi.sgst)
+                row["purchase_igst"] += float(pi.igst)
 
         return Response({"hsn_summary": list(hsn_map.values()), "count": len(hsn_map)})
 
