@@ -1,3 +1,4 @@
+from django.db.models import Sum
 from rest_framework import serializers
 
 from .models import (
@@ -69,6 +70,22 @@ class PartySerializer(serializers.ModelSerializer):
             return 0
         entries = Ledger.objects.filter(account_id=obj.account_id)
         total = sum(float(e.debit or 0) - float(e.credit or 0) for e in entries)
+        party_id = obj.id
+        unposted = {"party_id": party_id, "is_posted": False}
+        returns = {"party_id": party_id}
+
+        def signed(model, amount_field, sign, f):
+            amount = model.objects.filter(**f).aggregate(t=Sum(amount_field))["t"]
+            return sign * float(amount or 0)
+
+        total += signed(SalesInvoice, "total_amount", +1, unposted)
+        total += signed(PurchaseBill, "total_amount", -1, unposted)
+        total += signed(CreditNote, "total_amount", -1, unposted)
+        total += signed(DebitNote, "total_amount", +1, unposted)
+        total += signed(SaleReturn, "total_amount", -1, returns)
+        total += signed(PurchaseReturn, "total_amount", +1, returns)
+        total += signed(ReceiptVoucher, "amount", -1, unposted)
+        total += signed(PaymentVoucher, "amount", +1, unposted)
         return round(total, 2)
 
     def get_address(self, obj):
@@ -95,10 +112,59 @@ class ItemSerializer(serializers.ModelSerializer):
         queryset=ItemCategory.objects.all(), required=False, allow_null=True
     )
 
+    def get_transactions(self, instance):
+        rows = []
+
+        def collect(item_qs, parent_attr, label, rate_attr="price"):
+            for row in item_qs:
+                parent = getattr(row, parent_attr, None)
+                party = getattr(parent, "party", None) if parent else None
+                name = party.name if party else ""
+                if not name:
+                    name = (
+                        getattr(parent, "bill_id", "")
+                        or getattr(parent, "voucher_number", "")
+                        or ""
+                    )
+                status = ""
+                if parent is not None:
+                    if hasattr(parent, "is_posted"):
+                        status = "Posted" if parent.is_posted else "Draft"
+                    elif hasattr(parent, "status"):
+                        status = str(parent.status).replace("_", " ").title()
+                rows.append(
+                    {
+                        "id": str(row.uuid),
+                        "type": label,
+                        "name": name,
+                        "date": parent.date if parent else "",
+                        "qty": float(row.quantity or 0),
+                        "price": float(getattr(row, rate_attr, None) or 0),
+                        "status": status,
+                    }
+                )
+
+        collect(SalesInvoiceItem.objects.filter(item=instance), "invoice", "Sale")
+        collect(PurchaseBillItem.objects.filter(item=instance), "bill", "Purchase")
+        collect(CreditNoteItem.objects.filter(item=instance), "credit_note", "Credit Note")
+        collect(DebitNoteItem.objects.filter(item=instance), "debit_note", "Debit Note")
+        collect(
+            DeliveryChallanItem.objects.filter(item=instance),
+            "challan",
+            "Delivery Challan",
+            rate_attr="rate",
+        )
+        collect(SaleOrderItem.objects.filter(item=instance), "order", "Sale Order")
+        collect(PurchaseOrderItem.objects.filter(item=instance), "order", "Purchase Order")
+
+        rows.sort(key=lambda r: str(r["date"]), reverse=True)
+        return rows
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         if instance.category:
             representation["category"] = ItemCategorySerializer(instance.category).data
+        representation["transactions"] = self.get_transactions(instance)
         return representation
 
     class Meta:

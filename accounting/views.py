@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
@@ -555,39 +555,556 @@ class ConnectCAViewSet(viewsets.ViewSet):
 class DashboardSummaryViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
+    _MONTH_NAMES = [
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+        "Jan",
+        "Feb",
+        "Mar",
+    ]
+    _DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    @staticmethod
+    def _fy_bounds(today):
+        start_year = today.year if today.month >= 4 else today.year - 1
+        return date(start_year, 4, 1), date(start_year + 1, 3, 31)
+
+    def _empty_payload(self):
+        block = {"igst": 0, "cgst": 0, "sgst": 0, "cess": 0, "total": 0}
+        return {
+            "total_sales": 0,
+            "total_purchases": 0,
+            "sales_count": 0,
+            "purchase_count": 0,
+            "total_receipts": 0,
+            "total_payments": 0,
+            "direct_expenses": 0,
+            "indirect_expenses": 0,
+            "net_profit": 0,
+            "pending_receivables": 0,
+            "pending_payables": 0,
+            "cash": 0,
+            "bank": 0,
+            "assets": 0,
+            "liabilities": 0,
+            "stock_balance": 0,
+            "stock_in": 0,
+            "stock_out": 0,
+            "gst_data": {
+                "netOutput": dict(block),
+                "lessInput": dict(block),
+                "itcPayable": dict(block),
+            },
+            "ewb_status": {"generated": 0, "sales": 0},
+            "einvoice_status": {"generated": 0, "sales": 0, "pending": 0},
+            "trend_stats": {
+                "highestSales": "—",
+                "highestSalesMonth": "—",
+                "lowestSales": "—",
+                "lowestSalesMonth": "—",
+                "avgMonthlySales": 0,
+                "avgProfitMargin": 0,
+            },
+            "chart_data": {
+                "daily_labels": self._DAY_NAMES,
+                "daily_sales": [0] * 7,
+                "daily_purchase": [0] * 7,
+                "daily_expenses": [0] * 7,
+                "daily_profit": [0] * 7,
+                "monthly_labels": self._MONTH_NAMES,
+                "monthly_sales": [0] * 12,
+                "monthly_purchase": [0] * 12,
+                "monthly_expenses": [0] * 12,
+                "monthly_profit": [0] * 12,
+                "quarterly_labels": ["Q1", "Q2", "Q3", "Q4"],
+                "quarterly_sales": [0] * 4,
+                "quarterly_purchase": [0] * 4,
+                "quarterly_expenses": [0] * 4,
+                "quarterly_profit": [0] * 4,
+                "yearly_labels": [],
+                "yearly_sales": [],
+                "yearly_purchase": [],
+                "yearly_expenses": [],
+                "yearly_profit": [],
+            },
+            "pending_receipts": [],
+            "pending_payments": [],
+            "recent_entries": [],
+        }
+
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
         if tenant_id is None:
-            return Response(
+            return Response(self._empty_payload())
+
+        today = date.today()
+        fy_start, fy_end = self._fy_bounds(today)
+        start_year = fy_start.year
+
+        invoices = SalesInvoice.objects.filter(tenant_id=tenant_id)
+        purchases = PurchaseBill.objects.filter(tenant_id=tenant_id)
+        ledgers = Ledger.objects.filter(account__tenant_id=tenant_id)
+
+        total_sales = float(invoices.aggregate(t=Sum("total_amount"))["t"] or 0)
+        total_purchases = float(purchases.aggregate(t=Sum("total_amount"))["t"] or 0)
+        sales_count = invoices.count()
+        purchase_count = purchases.count()
+        pending_receivables = float(
+            invoices.filter(is_posted=False).aggregate(t=Sum("balance"))["t"] or 0
+        )
+        pending_payables = float(
+            purchases.filter(is_posted=False).aggregate(t=Sum("balance"))["t"] or 0
+        )
+        total_receipts = float(
+            ReceiptVoucher.objects.filter(tenant_id=tenant_id).aggregate(t=Sum("amount"))["t"] or 0
+        )
+        total_payments = float(
+            PaymentVoucher.objects.filter(tenant_id=tenant_id).aggregate(t=Sum("amount"))["t"] or 0
+        )
+
+        expense_accounts = Account.objects.filter(
+            tenant_id=tenant_id, account_type=Account.AccountType.EXPENSE
+        )
+        revenue_accounts = Account.objects.filter(
+            tenant_id=tenant_id, account_type=Account.AccountType.REVENUE
+        )
+        asset_accounts = Account.objects.filter(
+            tenant_id=tenant_id, account_type=Account.AccountType.ASSET
+        )
+
+        direct_expenses = 0.0
+        indirect_expenses = 0.0
+        for account in expense_accounts:
+            agg = ledgers.filter(account=account).aggregate(d=Sum("debit"), c=Sum("credit"))
+            amount = float((agg["d"] or 0) - (agg["c"] or 0))
+            name = (account.name or "").lower()
+            if any(
+                key in name for key in ("purchase", "direct", "material", "cogs", "raw material")
+            ):
+                direct_expenses += amount
+            else:
+                indirect_expenses += amount
+
+        total_income = 0.0
+        for account in revenue_accounts:
+            agg = ledgers.filter(account=account).aggregate(c=Sum("credit"), d=Sum("debit"))
+            total_income += float((agg["c"] or 0) - (agg["d"] or 0))
+        net_profit = total_income - direct_expenses - indirect_expenses
+
+        cash = 0.0
+        bank = 0.0
+        assets = 0.0
+        for account in asset_accounts:
+            agg = ledgers.filter(account=account).aggregate(d=Sum("debit"), c=Sum("credit"))
+            balance = float((agg["d"] or 0) - (agg["c"] or 0))
+            assets += balance
+            name = (account.name or "").lower()
+            if "cash" in name:
+                cash += balance
+            elif "bank" in name:
+                bank += balance
+
+        liabilities = 0.0
+        for account in Account.objects.filter(
+            tenant_id=tenant_id,
+            account_type__in=[Account.AccountType.LIABILITY, Account.AccountType.EQUITY],
+        ):
+            agg = ledgers.filter(account=account).aggregate(c=Sum("credit"), d=Sum("debit"))
+            liabilities += float((agg["c"] or 0) - (agg["d"] or 0))
+
+        opening_stock = float(
+            Item.objects.filter(tenant_id=tenant_id).aggregate(t=Sum("opening_quantity"))["t"] or 0
+        )
+        sold_qty = float(
+            SalesInvoiceItem.objects.filter(invoice__tenant_id=tenant_id).aggregate(
+                t=Sum("quantity")
+            )["t"]
+            or 0
+        )
+        bought_qty = float(
+            PurchaseBillItem.objects.filter(bill__tenant_id=tenant_id).aggregate(
+                t=Sum("quantity")
+            )["t"]
+            or 0
+        )
+        stock_in = opening_stock + bought_qty
+        stock_out = sold_qty
+        stock_balance = stock_in - stock_out
+
+        pending_receipts = []
+        for inv in invoices.filter(is_posted=False).select_related("party").order_by("-date")[:10]:
+            pending_receipts.append(
                 {
-                    "total_sales": 0,
-                    "total_purchases": 0,
-                    "sales_count": 0,
-                    "purchase_count": 0,
-                    "pending_receivables": 0,
-                    "pending_payables": 0,
+                    "party": inv.party.name if inv.party else "",
+                    "amount": float(inv.balance or 0),
+                    "due_days": (today - inv.date).days if inv.date else 0,
                 }
             )
-        qs = SalesInvoice.objects.all()
-        pq = PurchaseBill.objects.all()
-        qs = qs.filter(tenant_id=tenant_id)
-        pq = pq.filter(tenant_id=tenant_id)
+        pending_payments = []
+        for bill in (
+            purchases.filter(is_posted=False).select_related("party").order_by("-date")[:10]
+        ):
+            pending_payments.append(
+                {
+                    "party": bill.party.name if bill.party else "",
+                    "amount": float(bill.balance or 0),
+                    "due_days": (today - bill.date).days if bill.date else 0,
+                }
+            )
 
-        total_sales = qs.aggregate(t=Sum("total_amount"))["t"] or 0
-        total_purchases = pq.aggregate(t=Sum("total_amount"))["t"] or 0
-        sales_count = qs.count()
-        purchase_count = pq.count()
-        pending_receivables = qs.filter(is_posted=False).aggregate(t=Sum("balance"))["t"] or 0
-        pending_payables = pq.filter(is_posted=False).aggregate(t=Sum("balance"))["t"] or 0
+        def _gst_sums(items_qs):
+            return {
+                "igst": float(items_qs.aggregate(t=Sum("igst"))["t"] or 0),
+                "cgst": float(items_qs.aggregate(t=Sum("cgst"))["t"] or 0),
+                "sgst": float(items_qs.aggregate(t=Sum("sgst"))["t"] or 0),
+                "cess": float(items_qs.aggregate(t=Sum("cess"))["t"] or 0),
+            }
+
+        def _gst_block(sums):
+            return {
+                "igst": sums["igst"],
+                "cgst": sums["cgst"],
+                "sgst": sums["sgst"],
+                "cess": sums["cess"],
+                "total": sums["igst"] + sums["cgst"] + sums["sgst"] + sums["cess"],
+            }
+
+        outward = _gst_sums(SalesInvoiceItem.objects.filter(invoice__tenant_id=tenant_id))
+        inward = _gst_sums(PurchaseBillItem.objects.filter(bill__tenant_id=tenant_id))
+        gst_data = {
+            "netOutput": _gst_block(outward),
+            "lessInput": _gst_block(inward),
+            "itcPayable": _gst_block(
+                {
+                    "igst": outward["igst"] - inward["igst"],
+                    "cgst": outward["cgst"] - inward["cgst"],
+                    "sgst": outward["sgst"] - inward["sgst"],
+                    "cess": outward["cess"] - inward["cess"],
+                }
+            ),
+        }
+
+        ewb_generated = invoices.exclude(eway_bill_no="").count()
+        ewb_status = {"generated": ewb_generated, "sales": sales_count}
+        einvoice_status = {"generated": 0, "sales": sales_count, "pending": sales_count}
+
+        fy_invoices = invoices.filter(date__gte=fy_start, date__lte=fy_end)
+        fy_purchases = purchases.filter(date__gte=fy_start, date__lte=fy_end)
+        monthly_sales = []
+        monthly_purchase = []
+        monthly_expenses = []
+        monthly_profit = []
+        for month in range(1, 13):
+            s = float(
+                fy_invoices.filter(date__month=month).aggregate(t=Sum("total_amount"))["t"] or 0
+            )
+            p = float(
+                fy_purchases.filter(date__month=month).aggregate(t=Sum("total_amount"))["t"] or 0
+            )
+            e = float(
+                ledgers.filter(
+                    date__gte=fy_start,
+                    date__lte=fy_end,
+                    date__month=month,
+                    account__account_type=Account.AccountType.EXPENSE,
+                ).aggregate(t=Sum("debit"))["t"]
+                or 0
+            )
+            monthly_sales.append(round(s, 2))
+            monthly_purchase.append(round(p, 2))
+            monthly_expenses.append(round(e, 2))
+            monthly_profit.append(round(s - p - e, 2))
+
+        def month_name(month):
+            return self._MONTH_NAMES[(month - 4) % 12]
+
+        sales_vals = [v for v in monthly_sales if v]
+        highest = max(sales_vals) if sales_vals else None
+        lowest = min(sales_vals) if sales_vals else None
+        trend_stats = {
+            "highestSales": highest if highest is not None else "—",
+            "highestSalesMonth": (
+                month_name(monthly_sales.index(highest) + 1) if highest is not None else "—"
+            ),
+            "lowestSales": lowest if lowest is not None else "—",
+            "lowestSalesMonth": (
+                month_name(monthly_sales.index(lowest) + 1) if lowest is not None else "—"
+            ),
+            "avgMonthlySales": round(sum(monthly_sales) / 12, 2),
+            "avgProfitMargin": round((net_profit / total_sales * 100), 2) if total_sales else 0,
+        }
+
+        daily_labels = []
+        daily_sales = []
+        daily_purchase = []
+        daily_expenses = []
+        daily_profit = []
+        for offset in range(6, -1, -1):
+            day = today - timedelta(days=offset)
+            s = float(invoices.filter(date=day).aggregate(t=Sum("total_amount"))["t"] or 0)
+            p = float(purchases.filter(date=day).aggregate(t=Sum("total_amount"))["t"] or 0)
+            e = float(
+                ledgers.filter(
+                    date=day, account__account_type=Account.AccountType.EXPENSE
+                ).aggregate(t=Sum("debit"))["t"]
+                or 0
+            )
+            daily_labels.append(self._DAY_NAMES[day.weekday()])
+            daily_sales.append(round(s, 2))
+            daily_purchase.append(round(p, 2))
+            daily_expenses.append(round(e, 2))
+            daily_profit.append(round(s - p - e, 2))
+
+        def _quarterly(values):
+            return [
+                round(values[0] + values[1] + values[2], 2),
+                round(values[3] + values[4] + values[5], 2),
+                round(values[6] + values[7] + values[8], 2),
+                round(values[9] + values[10] + values[11], 2),
+            ]
+
+        yearly_labels = []
+        yearly_sales = []
+        yearly_purchase = []
+        yearly_expenses = []
+        yearly_profit = []
+        for year in range(start_year - 3, start_year + 1):
+            start = date(year, 4, 1)
+            end = date(year + 1, 3, 31)
+            s = float(
+                invoices.filter(date__range=[start, end]).aggregate(t=Sum("total_amount"))["t"]
+                or 0
+            )
+            p = float(
+                purchases.filter(date__range=[start, end]).aggregate(t=Sum("total_amount"))["t"]
+                or 0
+            )
+            e = float(
+                ledgers.filter(
+                    date__range=[start, end], account__account_type=Account.AccountType.EXPENSE
+                ).aggregate(t=Sum("debit"))["t"]
+                or 0
+            )
+            yearly_labels.append(f"{year}-{str(year + 1)[-2:]}")
+            yearly_sales.append(round(s, 2))
+            yearly_purchase.append(round(p, 2))
+            yearly_expenses.append(round(e, 2))
+            yearly_profit.append(round(s - p - e, 2))
+
+        chart_data = {
+            "daily_labels": daily_labels,
+            "daily_sales": daily_sales,
+            "daily_purchase": daily_purchase,
+            "daily_expenses": daily_expenses,
+            "daily_profit": daily_profit,
+            "monthly_labels": self._MONTH_NAMES,
+            "monthly_sales": monthly_sales,
+            "monthly_purchase": monthly_purchase,
+            "monthly_expenses": monthly_expenses,
+            "monthly_profit": monthly_profit,
+            "quarterly_labels": ["Q1", "Q2", "Q3", "Q4"],
+            "quarterly_sales": _quarterly(monthly_sales),
+            "quarterly_purchase": _quarterly(monthly_purchase),
+            "quarterly_expenses": _quarterly(monthly_expenses),
+            "quarterly_profit": _quarterly(monthly_profit),
+            "yearly_labels": yearly_labels,
+            "yearly_sales": yearly_sales,
+            "yearly_purchase": yearly_purchase,
+            "yearly_expenses": yearly_expenses,
+            "yearly_profit": yearly_profit,
+        }
+
+        def _party_name(party):
+            return party.name if party else ""
+
+        recent_entries = []
+        for inv in invoices.select_related("party").order_by("-date")[:5]:
+            recent_entries.append(
+                {
+                    "date": inv.date,
+                    "party": _party_name(inv.party),
+                    "voucher_type": "Sales",
+                    "voucher_no": inv.voucher_number,
+                    "amount_cr": 0.0,
+                    "amount_dr": float(inv.total_amount),
+                }
+            )
+        for bill in purchases.select_related("party").order_by("-date")[:5]:
+            recent_entries.append(
+                {
+                    "date": bill.date,
+                    "party": _party_name(bill.party),
+                    "voucher_type": "Purchase",
+                    "voucher_no": bill.voucher_number,
+                    "amount_cr": float(bill.total_amount),
+                    "amount_dr": 0.0,
+                }
+            )
+        for rv in (
+            ReceiptVoucher.objects.filter(tenant_id=tenant_id)
+            .select_related("party")
+            .order_by("-date")[:5]
+        ):
+            recent_entries.append(
+                {
+                    "date": rv.date,
+                    "party": _party_name(rv.party),
+                    "voucher_type": "Receipt",
+                    "voucher_no": rv.voucher_number,
+                    "amount_cr": float(rv.amount),
+                    "amount_dr": 0.0,
+                }
+            )
+        for pv in (
+            PaymentVoucher.objects.filter(tenant_id=tenant_id)
+            .select_related("party")
+            .order_by("-date")[:5]
+        ):
+            recent_entries.append(
+                {
+                    "date": pv.date,
+                    "party": _party_name(pv.party),
+                    "voucher_type": "Payment",
+                    "voucher_no": pv.voucher_number,
+                    "amount_cr": 0.0,
+                    "amount_dr": float(pv.amount),
+                }
+            )
+        for jv in JournalVoucher.objects.filter(tenant_id=tenant_id).order_by("-date")[:5]:
+            recent_entries.append(
+                {
+                    "date": jv.date,
+                    "party": "",
+                    "voucher_type": "Journal",
+                    "voucher_no": jv.voucher_number,
+                    "amount_cr": 0.0,
+                    "amount_dr": 0.0,
+                }
+            )
+        for cn in (
+            CreditNote.objects.filter(tenant_id=tenant_id)
+            .select_related("party")
+            .order_by("-date")[:5]
+        ):
+            recent_entries.append(
+                {
+                    "date": cn.date,
+                    "party": _party_name(cn.party),
+                    "voucher_type": "Credit Note",
+                    "voucher_no": cn.voucher_number,
+                    "amount_cr": float(cn.total_amount),
+                    "amount_dr": 0.0,
+                }
+            )
+        for dn in (
+            DebitNote.objects.filter(tenant_id=tenant_id)
+            .select_related("party")
+            .order_by("-date")[:5]
+        ):
+            recent_entries.append(
+                {
+                    "date": dn.date,
+                    "party": _party_name(dn.party),
+                    "voucher_type": "Debit Note",
+                    "voucher_no": dn.voucher_number,
+                    "amount_cr": 0.0,
+                    "amount_dr": float(dn.total_amount),
+                }
+            )
+        for ct in ContraVoucher.objects.filter(tenant_id=tenant_id).order_by("-date")[:5]:
+            recent_entries.append(
+                {
+                    "date": ct.date,
+                    "party": "",
+                    "voucher_type": "Contra",
+                    "voucher_no": ct.voucher_number,
+                    "amount_cr": float(ct.amount),
+                    "amount_dr": 0.0,
+                }
+            )
+        for so in (
+            SaleOrder.objects.filter(tenant_id=tenant_id)
+            .select_related("party")
+            .order_by("-date")[:5]
+        ):
+            recent_entries.append(
+                {
+                    "date": so.date,
+                    "party": _party_name(so.party),
+                    "voucher_type": "Sale Order",
+                    "voucher_no": so.order_number,
+                    "amount_cr": float(so.total_amount),
+                    "amount_dr": 0.0,
+                }
+            )
+        for po in (
+            PurchaseOrder.objects.filter(tenant_id=tenant_id)
+            .select_related("party")
+            .order_by("-date")[:5]
+        ):
+            recent_entries.append(
+                {
+                    "date": po.date,
+                    "party": _party_name(po.party),
+                    "voucher_type": "Purchase Order",
+                    "voucher_no": po.order_number,
+                    "amount_cr": 0.0,
+                    "amount_dr": float(po.total_amount),
+                }
+            )
+        for dc in (
+            DeliveryChallan.objects.filter(tenant_id=tenant_id)
+            .select_related("party")
+            .order_by("-date")[:5]
+        ):
+            recent_entries.append(
+                {
+                    "date": dc.date,
+                    "party": _party_name(dc.party),
+                    "voucher_type": "Delivery Challan",
+                    "voucher_no": dc.challan_number,
+                    "amount_cr": 0.0,
+                    "amount_dr": float(dc.total_amount),
+                }
+            )
+        recent_entries.sort(key=lambda e: e["date"] or date.min, reverse=True)
+        recent_entries = recent_entries[:10]
 
         return Response(
             {
-                "total_sales": total_sales,
-                "total_purchases": total_purchases,
+                "total_sales": round(total_sales, 2),
+                "total_purchases": round(total_purchases, 2),
                 "sales_count": sales_count,
                 "purchase_count": purchase_count,
-                "pending_receivables": pending_receivables,
-                "pending_payables": pending_payables,
+                "total_receipts": round(total_receipts, 2),
+                "total_payments": round(total_payments, 2),
+                "direct_expenses": round(direct_expenses, 2),
+                "indirect_expenses": round(indirect_expenses, 2),
+                "net_profit": round(net_profit, 2),
+                "pending_receivables": round(pending_receivables, 2),
+                "pending_payables": round(pending_payables, 2),
+                "cash": round(cash, 2),
+                "bank": round(bank, 2),
+                "assets": round(assets, 2),
+                "liabilities": round(liabilities, 2),
+                "stock_balance": round(stock_balance, 2),
+                "stock_in": round(stock_in, 2),
+                "stock_out": round(stock_out, 2),
+                "gst_data": gst_data,
+                "ewb_status": ewb_status,
+                "einvoice_status": einvoice_status,
+                "trend_stats": trend_stats,
+                "chart_data": chart_data,
+                "pending_receipts": pending_receipts,
+                "pending_payments": pending_payments,
+                "recent_entries": recent_entries,
             }
         )
 
@@ -753,8 +1270,60 @@ class GstLookupViewSet(viewsets.ViewSet):
         return Response(mock_data)
 
 
+def _parse_date(value):
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(str(value), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
 class LedgerViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
+
+    _VOUCHER_LABELS = {
+        "SalesInvoice": "Sales",
+        "PurchaseBill": "Purchase",
+        "ReceiptVoucher": "Receipt",
+        "PaymentVoucher": "Payment",
+        "JournalVoucher": "Journal",
+        "CreditNote": "Credit Note",
+        "DebitNote": "Debit Note",
+        "ContraVoucher": "Contra",
+        "SaleOrder": "Sale Order",
+        "PurchaseOrder": "Purchase Order",
+        "DeliveryChallan": "Delivery Challan",
+        "SaleReturn": "Sale Return",
+        "PurchaseReturn": "Purchase Return",
+    }
+
+    @staticmethod
+    def _describe_voucher(voucher):
+        if voucher is None:
+            return {
+                "voucher_type": "",
+                "voucher_no": "",
+                "narration": "",
+                "invoice_no": "",
+            }
+        model_name = type(voucher).__name__
+        voucher_no = (
+            getattr(voucher, "voucher_number", "")
+            or getattr(voucher, "order_number", "")
+            or getattr(voucher, "challan_number", "")
+            or getattr(voucher, "return_number", "")
+        )
+        narration = getattr(voucher, "narration", "") or getattr(voucher, "reason", "")
+        invoice_no = getattr(voucher, "bill_id", "") or getattr(voucher, "bill_number", "")
+        return {
+            "voucher_type": LedgerViewSet._VOUCHER_LABELS.get(model_name, model_name),
+            "voucher_no": voucher_no,
+            "narration": narration,
+            "invoice_no": invoice_no,
+        }
 
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
@@ -769,27 +1338,91 @@ class LedgerViewSet(viewsets.ViewSet):
 
         if account_id:
             qs = qs.filter(account_id=account_id)
-        if from_date:
-            qs = qs.filter(date__gte=from_date)
-        if to_date:
-            qs = qs.filter(date__lte=to_date)
+        parsed_from = _parse_date(from_date)
+        parsed_to = _parse_date(to_date)
+        if parsed_from:
+            qs = qs.filter(date__gte=parsed_from)
+        if parsed_to:
+            qs = qs.filter(date__lte=parsed_to)
+
+        rows = []
+        for entry in qs.select_related("account").all():
+            rows.append(
+                {
+                    "date": entry.date,
+                    "debit": float(entry.debit or 0),
+                    "credit": float(entry.credit or 0),
+                    "account": entry.account.name,
+                    "voucher": entry.voucher,
+                    "id": entry.uuid,
+                }
+            )
+
+        if account_id:
+            party_ids = Party.objects.filter(account_id=account_id).values_list("id", flat=True)
+            if party_ids:
+                synthetic = self._collect_unposted_vouchers(
+                    tenant_id, party_ids, parsed_from, parsed_to
+                )
+                rows.extend(synthetic)
 
         data = []
         running_balance = 0
-        for entry in qs.order_by("date"):
-            running_balance += float(entry.debit or 0)
-            running_balance -= float(entry.credit or 0)
+        for row in sorted(rows, key=lambda r: str(r["date"])):
+            debit = row["debit"]
+            credit = row["credit"]
+            running_balance += debit - credit
+            details = LedgerViewSet._describe_voucher(row["voucher"])
             data.append(
                 {
-                    "id": entry.uuid,
-                    "date": entry.date,
-                    "account": entry.account.name,
-                    "debit": float(entry.debit),
-                    "credit": float(entry.credit),
+                    "id": row["id"],
+                    "date": row["date"],
+                    "account": row["account"],
+                    "debit": debit,
+                    "credit": credit,
                     "balance": running_balance,
+                    "dr_cr": "Dr" if debit > 0 else "Cr",
+                    "voucher_type": details["voucher_type"],
+                    "voucher_no": details["voucher_no"],
+                    "narration": details["narration"],
+                    "invoice_no": details["invoice_no"],
                 }
             )
         return Response(data)
+
+    @staticmethod
+    def _collect_unposted_vouchers(tenant_id, party_ids, parsed_from, parsed_to):
+        rows = []
+
+        def push(model, dr_attr, cr_attr, posted_kwargs=None):
+            if posted_kwargs is None:
+                posted_kwargs = {"is_posted": False}
+            qs = model.objects.filter(party_id__in=party_ids, **posted_kwargs)
+            if parsed_from:
+                qs = qs.filter(date__gte=parsed_from)
+            if parsed_to:
+                qs = qs.filter(date__lte=parsed_to)
+            for v in qs.select_related("party"):
+                rows.append(
+                    {
+                        "date": v.date,
+                        "debit": float(getattr(v, dr_attr) or 0) if dr_attr else 0,
+                        "credit": float(getattr(v, cr_attr) or 0) if cr_attr else 0,
+                        "account": v.party.account.name if v.party and v.party.account else "",
+                        "voucher": v,
+                        "id": v.uuid,
+                    }
+                )
+
+        push(SalesInvoice, "total_amount", None)
+        push(PurchaseBill, None, "total_amount")
+        push(CreditNote, None, "total_amount")
+        push(DebitNote, "total_amount", None)
+        push(SaleReturn, None, "total_amount", posted_kwargs={})
+        push(PurchaseReturn, "total_amount", None, posted_kwargs={})
+        push(ReceiptVoucher, None, "amount")
+        push(PaymentVoucher, "amount", None)
+        return rows
 
 
 # =====================
@@ -798,8 +1431,8 @@ class LedgerViewSet(viewsets.ViewSet):
 
 
 def _date_filter(qs, request, date_field="date"):
-    from_date = request.query_params.get("from_date")
-    to_date = request.query_params.get("to_date")
+    from_date = _parse_date(request.query_params.get("from_date"))
+    to_date = _parse_date(request.query_params.get("to_date"))
     if from_date:
         qs = qs.filter(**{f"{date_field}__gte": from_date})
     if to_date:
@@ -1462,38 +2095,291 @@ class DaybookViewSet(viewsets.ViewSet):
             return Response(
                 {"entries": [], "total_received": 0, "total_paid": 0, "net": 0, "count": 0}
             )
-        date = request.query_params.get("date")
 
-        transactions = Transaction.objects.all()
-        transactions = transactions.filter(tenant_id=tenant_id)
-        if date:
-            transactions = transactions.filter(date=date)
-        else:
-            transactions = _date_filter(transactions, request)
+        parsed_from = _parse_date(request.query_params.get("from_date"))
+        parsed_to = _parse_date(request.query_params.get("to_date"))
+        single_date = _parse_date(request.query_params.get("date"))
+        vtype = (request.query_params.get("voucher_type") or "").strip().lower()
 
-        data = []
-        for txn in transactions.select_related("party").order_by("date"):
-            data.append(
-                {
-                    "id": str(txn.uuid),
-                    "date": txn.date,
-                    "party_name": txn.party.name if txn.party else "",
-                    "voucher_type": txn.voucher_type,
-                    "transaction_type": txn.transaction_type,
-                    "receipt_no": txn.receipt_no,
-                    "paid_amount": float(txn.paid_amount),
-                    "received_amount": float(txn.received_amount),
-                    "description": txn.description,
-                }
-            )
-        total_received = sum(d["received_amount"] for d in data)
-        total_paid = sum(d["paid_amount"] for d in data)
+        def in_range(qs, date_field="date"):
+            if single_date:
+                qs = qs.filter(**{f"{date_field}": single_date})
+            else:
+                if parsed_from:
+                    qs = qs.filter(**{f"{date_field}__gte": parsed_from})
+                if parsed_to:
+                    qs = qs.filter(**{f"{date_field}__lte": parsed_to})
+            return qs
+
+        entries = []
+
+        def push(
+            vtype_label,
+            qs,
+            number_attr,
+            amount_attr,
+            side,
+            narration_attr="narration",
+            invoice_attr=None,
+        ):
+            if vtype and vtype != vtype_label:
+                return
+            for obj in qs:
+                party = getattr(obj, "party", None)
+                number = getattr(obj, number_attr, "") or ""
+                narration = getattr(obj, narration_attr, "") or ""
+                invoice_no = ""
+                if invoice_attr:
+                    invoice_no = getattr(obj, invoice_attr, "") or ""
+                amount = float(getattr(obj, amount_attr) or 0)
+                entries.append(
+                    {
+                        "id": str(obj.uuid),
+                        "date": obj.date,
+                        "party_name": party.name if party else "",
+                        "party": party.name if party else "",
+                        "ledger_name": party.name if party else "",
+                        "voucher_type": vtype_label,
+                        "voucher_no": number,
+                        "invoice_no": invoice_no,
+                        "narration": narration,
+                        "paid_amount": amount if side == "dr" else 0.0,
+                        "received_amount": amount if side == "cr" else 0.0,
+                        "debit": amount if side == "dr" else 0.0,
+                        "credit": amount if side == "cr" else 0.0,
+                    }
+                )
+
+        push(
+            "sale",
+            in_range(SalesInvoice.objects.filter(tenant_id=tenant_id).select_related("party")),
+            "voucher_number",
+            "total_amount",
+            "dr",
+            invoice_attr="bill_id",
+        )
+        push(
+            "purchase",
+            in_range(PurchaseBill.objects.filter(tenant_id=tenant_id).select_related("party")),
+            "voucher_number",
+            "total_amount",
+            "cr",
+            invoice_attr="bill_id",
+        )
+        push(
+            "receipt",
+            in_range(ReceiptVoucher.objects.filter(tenant_id=tenant_id).select_related("party")),
+            "voucher_number",
+            "amount",
+            "cr",
+        )
+        push(
+            "payment",
+            in_range(PaymentVoucher.objects.filter(tenant_id=tenant_id).select_related("party")),
+            "voucher_number",
+            "amount",
+            "dr",
+        )
+        push(
+            "credit note",
+            in_range(CreditNote.objects.filter(tenant_id=tenant_id).select_related("party")),
+            "voucher_number",
+            "total_amount",
+            "cr",
+            invoice_attr="bill_id",
+        )
+        push(
+            "debit note",
+            in_range(DebitNote.objects.filter(tenant_id=tenant_id).select_related("party")),
+            "voucher_number",
+            "total_amount",
+            "dr",
+            invoice_attr="bill_id",
+        )
+        push(
+            "contra",
+            in_range(ContraVoucher.objects.filter(tenant_id=tenant_id)),
+            "voucher_number",
+            "amount",
+            "cr",
+        )
+        if not vtype or vtype == "journal":
+            for jv in in_range(JournalVoucher.objects.filter(tenant_id=tenant_id)):
+                dr = sum(float(e.debit or 0) for e in jv.entries.all())
+                cr = sum(float(e.credit or 0) for e in jv.entries.all())
+                entries.append(
+                    {
+                        "id": str(jv.uuid),
+                        "date": jv.date,
+                        "party_name": "",
+                        "party": "",
+                        "ledger_name": "",
+                        "voucher_type": "journal",
+                        "voucher_no": jv.voucher_number,
+                        "invoice_no": "",
+                        "narration": jv.narration or "",
+                        "paid_amount": dr,
+                        "received_amount": cr,
+                        "debit": dr,
+                        "credit": cr,
+                    }
+                )
+
+        entries.sort(key=lambda e: e["date"], reverse=True)
+        total_received = sum(e["received_amount"] for e in entries)
+        total_paid = sum(e["paid_amount"] for e in entries)
         return Response(
             {
-                "entries": data,
-                "total_received": total_received,
-                "total_paid": total_paid,
-                "net": total_received - total_paid,
-                "count": len(data),
+                "entries": entries,
+                "total_received": round(total_received, 2),
+                "total_paid": round(total_paid, 2),
+                "net": round(total_received - total_paid, 2),
+                "count": len(entries),
+            }
+        )
+
+
+class CashBankBookViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get"]
+
+    def list(self, request):
+        tenant_id = _get_tenant_or_empty(request)
+        if tenant_id is None:
+            return Response({"entries": [], "summary": {"cash": [], "bank": []}})
+
+        parsed_from = _parse_date(request.query_params.get("from_date"))
+        parsed_to = _parse_date(request.query_params.get("to_date"))
+        book_type = (request.query_params.get("account_type") or "both").strip().lower()
+
+        def in_range(qs, date_field="date"):
+            if parsed_from:
+                qs = qs.filter(**{f"{date_field}__gte": parsed_from})
+            if parsed_to:
+                qs = qs.filter(**{f"{date_field}__lte": parsed_to})
+            return qs
+
+        accounts = Account.objects.filter(
+            tenant_id=tenant_id, account_type=Account.AccountType.ASSET
+        )
+        cash_accounts = [a for a in accounts if "cash" in (a.name or "").lower()]
+        bank_accounts = [a for a in accounts if "bank" in (a.name or "").lower()]
+        all_ids = [a.id for a in cash_accounts + bank_accounts]
+
+        if book_type == "cash":
+            selected_ids = [a.id for a in cash_accounts]
+        elif book_type == "bank":
+            selected_ids = [a.id for a in bank_accounts]
+        else:
+            selected_ids = all_ids
+
+        def selected(account_id):
+            return account_id in selected_ids
+
+        entries = []
+
+        for entry in (
+            in_range(Ledger.objects.filter(account_id__in=selected_ids))
+            .select_related("account")
+            .order_by("date")
+        ):
+            details = LedgerViewSet._describe_voucher(entry.voucher)
+            entries.append(
+                {
+                    "date": entry.date,
+                    "account": entry.account.name,
+                    "particulars": entry.account.name,
+                    "voucher_type": details["voucher_type"],
+                    "voucher_no": details["voucher_no"],
+                    "debit": float(entry.debit or 0),
+                    "credit": float(entry.credit or 0),
+                }
+            )
+
+        for rv in (
+            in_range(ReceiptVoucher.objects.filter(tenant_id=tenant_id, is_posted=False))
+            .select_related("party", "received_in")
+            .order_by("date")
+        ):
+            if not selected(rv.received_in_id):
+                continue
+            entries.append(
+                {
+                    "date": rv.date,
+                    "account": rv.received_in.name,
+                    "particulars": rv.party.name if rv.party else rv.received_in.name,
+                    "voucher_type": "Receipt",
+                    "voucher_no": rv.voucher_number,
+                    "debit": 0.0,
+                    "credit": float(rv.amount),
+                }
+            )
+
+        for pv in (
+            in_range(PaymentVoucher.objects.filter(tenant_id=tenant_id, is_posted=False))
+            .select_related("party", "paid_from")
+            .order_by("date")
+        ):
+            if not selected(pv.paid_from_id):
+                continue
+            entries.append(
+                {
+                    "date": pv.date,
+                    "account": pv.paid_from.name,
+                    "particulars": pv.party.name if pv.party else pv.paid_from.name,
+                    "voucher_type": "Payment",
+                    "voucher_no": pv.voucher_number,
+                    "debit": float(pv.amount),
+                    "credit": 0.0,
+                }
+            )
+
+        for cv in (
+            in_range(ContraVoucher.objects.filter(tenant_id=tenant_id, is_posted=False))
+            .select_related("from_account", "to_account")
+            .order_by("date")
+        ):
+            if selected(cv.from_account_id):
+                entries.append(
+                    {
+                        "date": cv.date,
+                        "account": cv.from_account.name,
+                        "particulars": cv.from_account.name,
+                        "voucher_type": "Contra",
+                        "voucher_no": cv.voucher_number,
+                        "debit": float(cv.amount),
+                        "credit": 0.0,
+                    }
+                )
+            if selected(cv.to_account_id):
+                entries.append(
+                    {
+                        "date": cv.date,
+                        "account": cv.to_account.name,
+                        "particulars": cv.to_account.name,
+                        "voucher_type": "Contra",
+                        "voucher_no": cv.voucher_number,
+                        "debit": 0.0,
+                        "credit": float(cv.amount),
+                    }
+                )
+
+        entries.sort(key=lambda e: (str(e["date"]), e["account"]))
+
+        def build_summary(account_list):
+            items = []
+            for account in account_list:
+                dr = sum(e["debit"] for e in entries if e["account"] == account.name)
+                cr = sum(e["credit"] for e in entries if e["account"] == account.name)
+                items.append({"name": account.name, "dr": round(dr, 2), "cr": round(cr, 2)})
+            return items
+
+        return Response(
+            {
+                "entries": entries,
+                "summary": {
+                    "cash": build_summary(cash_accounts),
+                    "bank": build_summary(bank_accounts),
+                },
             }
         )

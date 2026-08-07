@@ -6,6 +6,7 @@ from .views import (
     BackupRestoreViewSet,
     BalanceSheetViewSet,
     BankReconciliationViewSet,
+    CashBankBookViewSet,
     CashFlowViewSet,
     CompanySettingViewSet,
     CompanySplitViewSet,
@@ -91,6 +92,7 @@ router.register(r"reports/trial-balance", TrialBalanceViewSet, basename="trial-b
 router.register(r"reports/profit-loss", ProfitLossViewSet, basename="profit-loss")
 router.register(r"reports/balance-sheet", BalanceSheetViewSet, basename="balance-sheet")
 router.register(r"reports/cash-flow", CashFlowViewSet, basename="cash-flow")
+router.register(r"reports/cash-bank-book", CashBankBookViewSet, basename="cash-bank-book")
 router.register(r"reports/sale-summary", SaleSummaryViewSet, basename="sale-summary")
 router.register(r"reports/purchase-summary", PurchaseSummaryViewSet, basename="purchase-summary")
 router.register(
