@@ -445,6 +445,11 @@ class ContraVoucherSerializer(VoucherSerializer):
 
 # --- Credit Note ---
 class CreditNoteItemSerializer(serializers.ModelSerializer):
+    credit_note = serializers.PrimaryKeyRelatedField(read_only=True)
+    item = serializers.PrimaryKeyRelatedField(
+        queryset=Item.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = CreditNoteItem
         fields = "__all__"
@@ -476,6 +481,11 @@ class CreditNoteSerializer(VoucherSerializer):
 
 # --- Debit Note ---
 class DebitNoteItemSerializer(serializers.ModelSerializer):
+    debit_note = serializers.PrimaryKeyRelatedField(read_only=True)
+    item = serializers.PrimaryKeyRelatedField(
+        queryset=Item.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = DebitNoteItem
         fields = "__all__"

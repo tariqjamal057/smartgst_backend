@@ -758,7 +758,7 @@ class CreditNote(BaseVoucher):
 
 class CreditNoteItem(BaseModel):
     credit_note = models.ForeignKey(CreditNote, on_delete=models.CASCADE, related_name="items")
-    item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    item = models.ForeignKey(Item, on_delete=models.SET_NULL, null=True, blank=True)
     quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     unit = models.CharField(max_length=20, blank=True)
     price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
@@ -806,7 +806,7 @@ class DebitNote(BaseVoucher):
 
 class DebitNoteItem(BaseModel):
     debit_note = models.ForeignKey(DebitNote, on_delete=models.CASCADE, related_name="items")
-    item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    item = models.ForeignKey(Item, on_delete=models.SET_NULL, null=True, blank=True)
     quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     unit = models.CharField(max_length=20, blank=True)
     price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)

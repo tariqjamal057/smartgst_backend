@@ -179,7 +179,12 @@ class FinancialYearProvisionMixin:
             serializer.validated_data["financial_year"] = financial_year
         if financial_year and financial_year.is_locked:
             raise ValidationError(f"Financial year {financial_year} is locked.")
-        super().perform_create(serializer)
+        try:
+            super().perform_create(serializer)
+        except IntegrityError:
+            raise ValidationError(
+                "A voucher with this number already exists for the current financial year."
+            )
 
 
 class BaseVoucherViewSet(FinancialYearProvisionMixin, TenantAwareViewSet):
