@@ -619,6 +619,7 @@ class PurchaseBill(BaseVoucher):
     vehicle_no = models.CharField(max_length=50, blank=True)
     lr_rr_no = models.CharField(max_length=50, blank=True)
     mode_of_transport = models.CharField(max_length=50, blank=True)
+    port_of_export = models.CharField(max_length=100, blank=True)
 
     class Meta:
         unique_together = [["tenant", "financial_year", "voucher_number"]]
