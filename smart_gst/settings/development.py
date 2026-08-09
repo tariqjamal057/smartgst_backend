@@ -17,6 +17,7 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 # Allow CSRF from these origins
 CSRF_TRUSTED_ORIGINS = [
     "https://api.taxoratax.com",
+    "https://taxora-eight.vercel.app",
 ]
 
 # CORS configuration for development
@@ -26,6 +27,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://taxora-eight.vercel.app",
 ]
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://localhost:\d+$",
