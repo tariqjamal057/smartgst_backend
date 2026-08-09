@@ -3,8 +3,21 @@ from .base import *  # noqa: F403
 # Override base settings for development
 DEBUG = True
 
-# Allow all hosts for local development
-ALLOWED_HOSTS = ["*"]
+# Hosts allowed to serve the API
+ALLOWED_HOSTS = [
+    "api.taxoratax.com",
+    "187.77.132.216",
+    "localhost",
+    "127.0.0.1",
+]
+
+# Trust the X-Forwarded-Proto header from the reverse proxy (HTTPS behind Nginx)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Allow CSRF from these origins
+CSRF_TRUSTED_ORIGINS = [
+    "https://api.taxoratax.com",
+]
 
 # CORS configuration for development
 CORS_ALLOW_ALL_ORIGINS = False
