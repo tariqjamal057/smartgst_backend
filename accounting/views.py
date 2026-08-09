@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
-from django.db.models import Max, Q, Sum
+from django.db.models import Max, Sum
 from django.http import HttpResponse
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -1602,6 +1602,25 @@ def _get_tenant_or_empty(request):
     return tenant_id
 
 
+def _company_info(tenant_id):
+    company = CompanySetting.objects.filter(tenant_id=tenant_id, is_active=True).first()
+    if company is None:
+        company = CompanySetting.objects.filter(id=tenant_id, is_active=True).first()
+    return {
+        "company_name": company.company_name if company else "",
+        "trade_name": company.company_name if company else "",
+        "gstin": company.gstin if company else "",
+        "financial_year": company.financial_year if company else "",
+    }
+
+
+def _return_period(request):
+    from_date = _parse_date(request.query_params.get("from_date"))
+    if from_date:
+        return f"{from_date.month:02d}{from_date.year}"
+    return ""
+
+
 class SaleSummaryViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get"]
@@ -2181,66 +2200,240 @@ class GSTR1ViewSet(viewsets.ViewSet):
 
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
-        if tenant_id is None:
-            return Response(
-                {
-                    "b2b": [],
-                    "b2c": [],
-                    "summary": {
-                        "total_taxable_value": 0,
-                        "total_igst": 0,
-                        "total_cgst": 0,
-                        "total_sgst": 0,
-                        "total_cess": 0,
-                    },
-                }
-            )
-        qs = SalesInvoice.objects.filter(is_posted=True)
-        qs = qs.filter(tenant_id=tenant_id)
-        qs = _date_filter(qs, request)
+        company = _company_info(tenant_id) if tenant_id else _company_info(None)
 
-        b2b = []
-        for inv in qs.select_related("party").exclude(party__gstin=""):
-            b2b.append(
-                {
-                    "gstin": inv.party.gstin if inv.party else "",
-                    "party_name": inv.party.name if inv.party else "",
-                    "invoice_number": inv.bill_id or inv.voucher_number,
-                    "invoice_date": inv.date,
-                    "invoice_value": float(inv.total_amount),
-                    "taxable_value": float(inv.total_taxable_amount),
-                    "place_of_supply": inv.state_of_supply or "",
-                    "supply_type": inv.supply_type,
-                    "rate": float(inv.items.first().gst_rate if inv.items.exists() else 0),
-                    "igst": float(inv.total_igst),
-                    "cgst": float(inv.total_cgst),
-                    "sgst": float(inv.total_sgst),
-                    "cess": float(inv.total_cess),
-                }
-            )
-        b2c = []
-        for inv in qs.filter(Q(party__isnull=True) | Q(party__gstin="")):
-            b2c.append(
-                {
-                    "invoice_number": inv.bill_id or inv.voucher_number,
-                    "invoice_date": inv.date,
-                    "invoice_value": float(inv.total_amount),
-                    "taxable_value": float(inv.total_taxable_amount),
-                    "place_of_supply": inv.state_of_supply or "",
-                    "rate": float(inv.items.first().gst_rate if inv.items.exists() else 0),
-                    "igst": float(inv.total_igst),
-                    "cgst": float(inv.total_cgst),
-                    "sgst": float(inv.total_sgst),
-                }
-            )
-        summary = {
-            "total_taxable_value": float(qs.aggregate(t=Sum("total_taxable_amount"))["t"] or 0),
-            "total_igst": float(qs.aggregate(t=Sum("total_igst"))["t"] or 0),
-            "total_cgst": float(qs.aggregate(t=Sum("total_cgst"))["t"] or 0),
-            "total_sgst": float(qs.aggregate(t=Sum("total_sgst"))["t"] or 0),
-            "total_cess": float(qs.aggregate(t=Sum("total_cess"))["t"] or 0),
+        empty_structure = {
+            "general": [],
+            "b2b": [],
+            "b2cLarge": [],
+            "export": [],
+            "nilRated": [],
+            "crdr": [],
+            "crdrUnregistered": [],
+            "advanceReceived": [],
+            "advanceAdjusted": [],
+            "hsnSummary": [],
+            "documentIssued": [],
+            "ecomSupplies": [],
+            "ecomSupplies9_5": [],
         }
-        return Response({"b2b": b2b, "b2c": b2c, "summary": summary})
+
+        def _general_row():
+            return [
+                {
+                    "gstin": company["gstin"],
+                    "legalName": company["company_name"],
+                    "tradeName": company["trade_name"],
+                    "returnPeriod": _return_period(request),
+                    "financialYear": company["financial_year"],
+                }
+            ]
+
+        empty_summary = {
+            "total_taxable_value": 0,
+            "total_igst": 0,
+            "total_cgst": 0,
+            "total_sgst": 0,
+            "total_cess": 0,
+        }
+        if tenant_id is None:
+            empty_structure["general"] = _general_row()
+            empty_structure["summary"] = empty_summary
+            return Response(empty_structure)
+
+        qs = SalesInvoice.objects.filter(is_posted=True, tenant_id=tenant_id)
+        qs = _date_filter(qs, request)
+        invoices = list(qs.select_related("party").prefetch_related("items"))
+
+        b2b, b2c_large, exports, ecom, ecom9_5, nil_rows = [], [], [], [], [], []
+        for inv in invoices:
+            first_item = inv.items.all().first()
+            rate = float(first_item.gst_rate) if first_item else 0
+            taxable = float(inv.total_taxable_amount)
+            value = float(inv.total_amount)
+            cess = float(inv.total_cess)
+            gstin = inv.party.gstin if inv.party else ""
+            receiver = inv.party.name if inv.party else ""
+            invoice_no = inv.bill_id or inv.voucher_number
+            if inv.supply_type == SalesInvoice.SupplyType.EXPORT:
+                exports.append(
+                    {
+                        "exportType": "WOPAYMENT",
+                        "invoiceNo": invoice_no,
+                        "invoiceDate": inv.date,
+                        "invoiceValue": value,
+                        "portCode": "",
+                        "shippingBillNo": "",
+                        "shippingBillDate": "",
+                        "gstRate": rate,
+                        "taxableValue": taxable,
+                        "cess": cess,
+                    }
+                )
+            elif gstin:
+                b2b.append(
+                    {
+                        "gstin": gstin,
+                        "receiver": receiver,
+                        "invoiceNo": invoice_no,
+                        "invoiceDate": inv.date,
+                        "invoiceValue": value,
+                        "placeOfSupply": inv.state_of_supply or "",
+                        "reverseCharge": "N",
+                        "invoiceType": inv.supply_type,
+                        "ecommerceGSTIN": inv.ecommerce_gstin,
+                        "gstRate": rate,
+                        "taxableValue": taxable,
+                        "cess": cess,
+                    }
+                )
+            else:
+                b2c_large.append(
+                    {
+                        "invoiceNo": invoice_no,
+                        "invoiceDate": inv.date,
+                        "invoiceValue": value,
+                        "placeOfSupply": inv.state_of_supply or "",
+                        "applicableTaxRate": 100,
+                        "gstRate": rate,
+                        "taxableValue": taxable,
+                        "cess": cess,
+                        "ecommerceGSTIN": inv.ecommerce_gstin,
+                    }
+                )
+            if inv.ecommerce_gstin:
+                ecom_row = {
+                    "gstin": inv.ecommerce_gstin,
+                    "supplyValue": value,
+                    "placeOfSupply": inv.state_of_supply or "",
+                    "rate": rate,
+                    "taxableValue": taxable,
+                    "igst": float(inv.total_igst),
+                    "cgst": float(inv.total_cgst),
+                    "sgst": float(inv.total_sgst),
+                    "cess": cess,
+                }
+                (ecom if gstin else ecom9_5).append(ecom_row)
+            zero_taxable = sum(
+                float(i.taxable_value) for i in inv.items.all() if float(i.gst_rate) == 0
+            )
+            if zero_taxable:
+                nil_rows.append(
+                    {
+                        "description": invoice_no,
+                        "nilRated": zero_taxable,
+                        "exempted": 0,
+                        "nonGst": 0,
+                    }
+                )
+
+        crdr, crdr_unregistered = [], []
+        sr_qs = _date_filter(SaleReturn.objects.filter(tenant_id=tenant_id), request)
+        for ret in sr_qs.select_related("party", "invoice").prefetch_related("items"):
+            items = list(ret.items.all())
+            first_item = items[0] if items else None
+            taxable = round(sum(float(i.taxable_value) for i in items), 2)
+            note_value = round(
+                taxable
+                + sum(
+                    float(i.igst) + float(i.cgst) + float(i.sgst) + float(i.cess) for i in items
+                ),
+                2,
+            )
+            row = {
+                "noteNo": ret.return_number,
+                "noteDate": ret.date,
+                "noteType": "Credit Note",
+                "placeOfSupply": ret.invoice.state_of_supply if ret.invoice else "",
+                "gstRate": float(first_item.gst_rate) if first_item else 0,
+                "noteValue": note_value,
+                "taxableValue": taxable,
+                "cess": round(sum(float(i.cess) for i in items), 2),
+            }
+            if ret.party and ret.party.gstin:
+                row["gstin"] = ret.party.gstin
+                row["receiver"] = ret.party.name
+                crdr.append(row)
+            else:
+                row["receiver"] = ret.party.name if ret.party else ""
+                crdr_unregistered.append(row)
+
+        hsn_map = {}
+        item_qs = SalesInvoiceItem.objects.filter(
+            invoice_id__in=[inv.id for inv in invoices]
+        ).select_related("item")
+        for line in item_qs:
+            hsn = line.item.hsn_code if line.item else ""
+            agg = hsn_map.get(hsn)
+            if agg is None:
+                agg = {
+                    "hsn": hsn,
+                    "description": line.item.name if line.item else "",
+                    "uqc": line.unit or "",
+                    "quantity": 0,
+                    "totalValue": 0,
+                    "taxableValue": 0,
+                    "igst": 0,
+                    "cgst": 0,
+                    "sgst": 0,
+                    "cess": 0,
+                    "rate": 0,
+                }
+                hsn_map[hsn] = agg
+            agg["quantity"] += float(line.quantity)
+            agg["taxableValue"] += float(line.taxable_value)
+            agg["igst"] += float(line.igst)
+            agg["cgst"] += float(line.cgst)
+            agg["sgst"] += float(line.sgst)
+            agg["cess"] += float(line.cess)
+            agg["rate"] = max(agg["rate"], float(line.gst_rate))
+        hsn_summary = []
+        for agg in hsn_map.values():
+            agg["totalValue"] = round(
+                agg["taxableValue"] + agg["igst"] + agg["cgst"] + agg["sgst"] + agg["cess"], 2
+            )
+            hsn_summary.append(agg)
+        hsn_summary.sort(key=lambda x: x["hsn"])
+
+        numbers = sorted(inv.bill_id or inv.voucher_number for inv in invoices)
+        document_issued = []
+        if numbers:
+            document_issued.append(
+                {
+                    "nature": "Invoices",
+                    "from": numbers[0],
+                    "to": numbers[-1],
+                    "total": len(numbers),
+                    "cancelled": 0,
+                }
+            )
+
+        summary = {
+            "total_taxable_value": round(sum(float(i.total_taxable_amount) for i in invoices), 2),
+            "total_igst": round(sum(float(i.total_igst) for i in invoices), 2),
+            "total_cgst": round(sum(float(i.total_cgst) for i in invoices), 2),
+            "total_sgst": round(sum(float(i.total_sgst) for i in invoices), 2),
+            "total_cess": round(sum(float(i.total_cess) for i in invoices), 2),
+        }
+
+        return Response(
+            {
+                "general": _general_row(),
+                "b2b": b2b,
+                "b2cLarge": b2c_large,
+                "export": exports,
+                "nilRated": nil_rows,
+                "crdr": crdr,
+                "crdrUnregistered": crdr_unregistered,
+                "advanceReceived": [],
+                "advanceAdjusted": [],
+                "hsnSummary": hsn_summary,
+                "documentIssued": document_issued,
+                "ecomSupplies": ecom,
+                "ecomSupplies9_5": ecom9_5,
+                "summary": summary,
+            }
+        )
 
 
 class GSTR2ViewSet(viewsets.ViewSet):
@@ -2249,50 +2442,135 @@ class GSTR2ViewSet(viewsets.ViewSet):
 
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
+        company = _company_info(tenant_id) if tenant_id else _company_info(None)
+        empty_summary = {
+            "total_taxable_value": 0,
+            "total_igst": 0,
+            "total_cgst": 0,
+            "total_sgst": 0,
+            "total_cess": 0,
+        }
         if tenant_id is None:
             return Response(
                 {
-                    "b2b": [],
-                    "summary": {
-                        "total_taxable_value": 0,
-                        "total_igst": 0,
-                        "total_cgst": 0,
-                        "total_sgst": 0,
-                        "total_cess": 0,
-                    },
+                    "results": [],
+                    "company": company,
+                    "hsn": [],
+                    "summary": empty_summary,
+                    "count": 0,
                 }
             )
-        qs = PurchaseBill.objects.filter(is_posted=True)
-        qs = qs.filter(tenant_id=tenant_id)
+        qs = PurchaseBill.objects.filter(is_posted=True, tenant_id=tenant_id)
         qs = _date_filter(qs, request)
+        bills = list(qs.select_related("party").prefetch_related("items"))
 
-        b2b = []
-        for bill in qs.select_related("party").exclude(party__gstin=""):
-            b2b.append(
+        results = []
+        for bill in bills:
+            first_item = bill.items.all().first()
+            results.append(
                 {
                     "gstin": bill.party.gstin if bill.party else "",
-                    "party_name": bill.party.name if bill.party else "",
-                    "bill_number": bill.bill_id or bill.voucher_number,
-                    "bill_date": bill.date,
-                    "bill_value": float(bill.total_amount),
-                    "taxable_value": float(bill.total_taxable_amount),
-                    "place_of_supply": bill.state_of_supply or "",
-                    "supply_type": bill.supply_type,
-                    "rate": float(bill.items.first().gst_rate if bill.items.exists() else 0),
+                    "supplier": bill.party.name if bill.party else "",
+                    "invoiceNo": bill.bill_id or bill.voucher_number,
+                    "invoiceDate": bill.date,
+                    "invoiceValue": float(bill.total_amount),
+                    "placeOfSupply": bill.state_of_supply or "",
+                    "reverseCharge": "N",
+                    "invoiceType": bill.supply_type,
+                    "rate": float(first_item.gst_rate) if first_item else 0,
+                    "taxableValue": float(bill.total_taxable_amount),
                     "igst": float(bill.total_igst),
                     "cgst": float(bill.total_cgst),
                     "sgst": float(bill.total_sgst),
                     "cess": float(bill.total_cess),
                 }
             )
+
+        returns = []
+        ret_qs = _date_filter(PurchaseReturn.objects.filter(tenant_id=tenant_id), request)
+        for ret in ret_qs.select_related("party", "bill").prefetch_related("items"):
+            items = list(ret.items.all())
+            first_item = items[0] if items else None
+            taxable = round(sum(float(i.taxable_value) for i in items), 2)
+            note_value = round(
+                taxable
+                + sum(
+                    float(i.igst) + float(i.cgst) + float(i.sgst) + float(i.cess) for i in items
+                ),
+                2,
+            )
+            returns.append(
+                {
+                    "gstin": ret.party.gstin if ret.party else "",
+                    "supplier": ret.party.name if ret.party else "",
+                    "noteNo": ret.return_number,
+                    "noteDate": ret.date,
+                    "noteType": "Debit Note",
+                    "placeOfSupply": ret.bill.state_of_supply if ret.bill else "",
+                    "rate": float(first_item.gst_rate) if first_item else 0,
+                    "noteValue": note_value,
+                    "taxableValue": taxable,
+                    "igst": round(sum(float(i.igst) for i in items), 2),
+                    "cgst": round(sum(float(i.cgst) for i in items), 2),
+                    "sgst": round(sum(float(i.sgst) for i in items), 2),
+                    "cess": round(sum(float(i.cess) for i in items), 2),
+                }
+            )
+
+        hsn_map = {}
+        item_qs = PurchaseBillItem.objects.filter(
+            bill_id__in=[bill.id for bill in bills]
+        ).select_related("item")
+        for line in item_qs:
+            hsn = line.item.hsn_code if line.item else ""
+            agg = hsn_map.get(hsn)
+            if agg is None:
+                agg = {
+                    "hsn": hsn,
+                    "description": line.item.name if line.item else "",
+                    "uqc": line.unit or "",
+                    "quantity": 0,
+                    "totalValue": 0,
+                    "taxableValue": 0,
+                    "igst": 0,
+                    "cgst": 0,
+                    "sgst": 0,
+                    "cess": 0,
+                    "rate": float(line.gst_rate),
+                }
+                hsn_map[hsn] = agg
+            agg["quantity"] += float(line.quantity)
+            agg["taxableValue"] += float(line.taxable_value)
+            agg["igst"] += float(line.igst)
+            agg["cgst"] += float(line.cgst)
+            agg["sgst"] += float(line.sgst)
+            agg["cess"] += float(line.cess)
+            agg["rate"] = float(line.gst_rate)
+        hsn = []
+        for agg in hsn_map.values():
+            agg["totalValue"] = round(
+                agg["taxableValue"] + agg["igst"] + agg["cgst"] + agg["sgst"] + agg["cess"], 2
+            )
+            hsn.append(agg)
+        hsn.sort(key=lambda x: x["hsn"])
+
         summary = {
-            "total_taxable_value": float(qs.aggregate(t=Sum("total_taxable_amount"))["t"] or 0),
-            "total_igst": float(qs.aggregate(t=Sum("total_igst"))["t"] or 0),
-            "total_cgst": float(qs.aggregate(t=Sum("total_cgst"))["t"] or 0),
-            "total_sgst": float(qs.aggregate(t=Sum("total_sgst"))["t"] or 0),
-            "total_cess": float(qs.aggregate(t=Sum("total_cess"))["t"] or 0),
+            "total_taxable_value": round(sum(float(b.total_taxable_amount) for b in bills), 2),
+            "total_igst": round(sum(float(b.total_igst) for b in bills), 2),
+            "total_cgst": round(sum(float(b.total_cgst) for b in bills), 2),
+            "total_sgst": round(sum(float(b.total_sgst) for b in bills), 2),
+            "total_cess": round(sum(float(b.total_cess) for b in bills), 2),
         }
-        return Response({"b2b": b2b, "summary": summary})
+        return Response(
+            {
+                "results": results,
+                "returns": returns,
+                "company": company,
+                "hsn": hsn,
+                "summary": summary,
+                "count": len(results),
+            }
+        )
 
 
 class GSTR3BViewSet(viewsets.ViewSet):
@@ -2301,50 +2579,124 @@ class GSTR3BViewSet(viewsets.ViewSet):
 
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
+        company = _company_info(tenant_id) if tenant_id else _company_info(None)
+        zeros = {"taxable_value": 0, "igst": 0, "cgst": 0, "sgst": 0}
         if tenant_id is None:
             return Response(
                 {
-                    "outward_supplies": {"taxable_value": 0, "igst": 0, "cgst": 0, "sgst": 0},
-                    "inward_supplies": {"taxable_value": 0, "igst": 0, "cgst": 0, "sgst": 0},
+                    "results": [],
+                    "statewise": [],
+                    "company": company,
+                    "outward_supplies": zeros,
+                    "inward_supplies": zeros,
                     "net_liability": {"igst": 0, "cgst": 0, "sgst": 0},
                 }
             )
-        sales = SalesInvoice.objects.filter(is_posted=True)
-        purchases = PurchaseBill.objects.filter(is_posted=True)
-        sales = sales.filter(tenant_id=tenant_id)
-        purchases = purchases.filter(tenant_id=tenant_id)
+        sales = SalesInvoice.objects.filter(is_posted=True, tenant_id=tenant_id)
+        purchases = PurchaseBill.objects.filter(is_posted=True, tenant_id=tenant_id)
         sales = _date_filter(sales, request)
         purchases = _date_filter(purchases, request)
 
-        outward_taxable = float(sales.aggregate(t=Sum("total_taxable_amount"))["t"] or 0)
-        outward_igst = float(sales.aggregate(t=Sum("total_igst"))["t"] or 0)
-        outward_cgst = float(sales.aggregate(t=Sum("total_cgst"))["t"] or 0)
-        outward_sgst = float(sales.aggregate(t=Sum("total_sgst"))["t"] or 0)
+        outward = {
+            "taxable_value": float(sales.aggregate(t=Sum("total_taxable_amount"))["t"] or 0),
+            "igst": float(sales.aggregate(t=Sum("total_igst"))["t"] or 0),
+            "cgst": float(sales.aggregate(t=Sum("total_cgst"))["t"] or 0),
+            "sgst": float(sales.aggregate(t=Sum("total_sgst"))["t"] or 0),
+        }
+        inward = {
+            "taxable_value": float(purchases.aggregate(t=Sum("total_taxable_amount"))["t"] or 0),
+            "igst": float(purchases.aggregate(t=Sum("total_igst"))["t"] or 0),
+            "cgst": float(purchases.aggregate(t=Sum("total_cgst"))["t"] or 0),
+            "sgst": float(purchases.aggregate(t=Sum("total_sgst"))["t"] or 0),
+        }
+        net = {
+            "igst": round(outward["igst"] - inward["igst"], 2),
+            "cgst": round(outward["cgst"] - inward["cgst"], 2),
+            "sgst": round(outward["sgst"] - inward["sgst"], 2),
+        }
 
-        inward_taxable = float(purchases.aggregate(t=Sum("total_taxable_amount"))["t"] or 0)
-        inward_igst = float(purchases.aggregate(t=Sum("total_igst"))["t"] or 0)
-        inward_cgst = float(purchases.aggregate(t=Sum("total_cgst"))["t"] or 0)
-        inward_sgst = float(purchases.aggregate(t=Sum("total_sgst"))["t"] or 0)
+        state_map = {}
+        for inv in sales.select_related("party"):
+            state = (inv.state_of_supply or "").strip()
+            if not state:
+                continue
+            agg = state_map.get(state)
+            if agg is None:
+                agg = {"state": state, "taxableValue": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0}
+                state_map[state] = agg
+            agg["taxableValue"] += float(inv.total_taxable_amount)
+            agg["igst"] += float(inv.total_igst)
+            agg["cgst"] += float(inv.total_cgst)
+            agg["sgst"] += float(inv.total_sgst)
+        statewise = [
+            {
+                "nature": "Supplies made to Unregistered Persons",
+                "state": agg["state"],
+                "taxableValue": round(agg["taxableValue"], 2),
+                "igst": round(agg["igst"], 2),
+                "cgst": round(agg["cgst"], 2),
+                "sgst": round(agg["sgst"], 2),
+            }
+            for agg in sorted(state_map.values(), key=lambda x: x["state"])
+        ]
 
+        results = [
+            {
+                "nature": (
+                    "Outward taxable supplies (other than zero rated, " "nil rated and exempted)"
+                ),
+                "state": "",
+                "taxableValue": outward["taxable_value"],
+                "igst": outward["igst"],
+                "cgst": outward["cgst"],
+                "sgst": outward["sgst"],
+                "cess": 0,
+            },
+            {
+                "nature": "Outward supplies attracting reverse charge",
+                "state": "",
+                "taxableValue": 0,
+                "igst": 0,
+                "cgst": 0,
+                "sgst": 0,
+                "cess": 0,
+            },
+            {
+                "nature": "Inward supplies liable to reverse charge",
+                "state": "",
+                "taxableValue": 0,
+                "igst": 0,
+                "cgst": 0,
+                "sgst": 0,
+                "cess": 0,
+            },
+            {
+                "nature": "Import of services",
+                "state": "",
+                "taxableValue": 0,
+                "igst": 0,
+                "cgst": 0,
+                "sgst": 0,
+                "cess": 0,
+            },
+            {
+                "nature": "Net GST payable",
+                "state": "",
+                "taxableValue": 0,
+                "igst": net["igst"],
+                "cgst": net["cgst"],
+                "sgst": net["sgst"],
+                "cess": 0,
+            },
+        ]
         return Response(
             {
-                "outward_supplies": {
-                    "taxable_value": outward_taxable,
-                    "igst": outward_igst,
-                    "cgst": outward_cgst,
-                    "sgst": outward_sgst,
-                },
-                "inward_supplies": {
-                    "taxable_value": inward_taxable,
-                    "igst": inward_igst,
-                    "cgst": inward_cgst,
-                    "sgst": inward_sgst,
-                },
-                "net_liability": {
-                    "igst": outward_igst - inward_igst,
-                    "cgst": outward_cgst - inward_cgst,
-                    "sgst": outward_sgst - inward_sgst,
-                },
+                "results": results,
+                "statewise": statewise,
+                "company": company,
+                "outward_supplies": outward,
+                "inward_supplies": inward,
+                "net_liability": net,
             }
         )
 
@@ -2355,20 +2707,29 @@ class GSTR7ViewSet(viewsets.ViewSet):
 
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
+        company = _company_info(tenant_id) if tenant_id else _company_info(None)
         if tenant_id is None:
-            return Response({"transactions": [], "count": 0})
-        qs = Transaction.objects.filter(
+            return Response(
+                {
+                    "results": [],
+                    "transactions": [],
+                    "company": company,
+                    "count": 0,
+                    "total_tds": 0,
+                }
+            )
+        txn_qs = Transaction.objects.filter(
             transaction_type__in=[
                 Transaction.TransactionTypeChoices.SALE,
                 Transaction.TransactionTypeChoices.PURCHASE,
             ]
         )
-        qs = qs.filter(tenant_id=tenant_id)
-        qs = _date_filter(qs, request)
+        txn_qs = txn_qs.filter(tenant_id=tenant_id)
+        txn_qs = _date_filter(txn_qs, request)
 
-        data = []
-        for txn in qs.select_related("party").order_by("date"):
-            data.append(
+        transactions = []
+        for txn in txn_qs.select_related("party").order_by("date"):
+            transactions.append(
                 {
                     "id": str(txn.uuid),
                     "date": txn.date,
@@ -2380,7 +2741,33 @@ class GSTR7ViewSet(viewsets.ViewSet):
                     "received_amount": float(txn.received_amount),
                 }
             )
-        return Response({"transactions": data, "count": len(data)})
+
+        results = []
+        payments = _date_filter(PaymentVoucher.objects.filter(tenant_id=tenant_id), request)
+        for pmt in payments.select_related("party").order_by("date"):
+            amount = float(pmt.amount)
+            results.append(
+                {
+                    "date": pmt.date,
+                    "section": "194C",
+                    "account": pmt.party.name if pmt.party else "",
+                    "pan": pmt.party.gstin if pmt.party else "",
+                    "voucher_number": pmt.voucher_number,
+                    "amount": amount,
+                    "rate": 1.0,
+                    "tax": round(amount * 0.01, 2),
+                }
+            )
+        total_tds = round(sum(r["tax"] for r in results), 2)
+        return Response(
+            {
+                "results": results,
+                "transactions": transactions,
+                "company": company,
+                "count": len(results),
+                "total_tds": total_tds,
+            }
+        )
 
 
 class TDSReportViewSet(viewsets.ViewSet):
@@ -2389,14 +2776,17 @@ class TDSReportViewSet(viewsets.ViewSet):
 
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
+        company = _company_info(tenant_id) if tenant_id else _company_info(None)
         if tenant_id is None:
-            return Response({"entries": [], "total_tds": 0, "count": 0})
-        payments = PaymentVoucher.objects.all()
-        payments = payments.filter(tenant_id=tenant_id)
+            return Response(
+                {"results": [], "entries": [], "company": company, "total_tds": 0, "count": 0}
+            )
+        payments = PaymentVoucher.objects.filter(tenant_id=tenant_id)
         payments = _date_filter(payments, request)
 
         data = []
         for pmt in payments.select_related("party").order_by("date"):
+            amount = float(pmt.amount)
             data.append(
                 {
                     "id": str(pmt.uuid),
@@ -2404,14 +2794,35 @@ class TDSReportViewSet(viewsets.ViewSet):
                     "party_name": pmt.party.name if pmt.party else "",
                     "party_gstin": pmt.party.gstin if pmt.party else "",
                     "voucher_number": pmt.voucher_number,
-                    "amount": float(pmt.amount),
+                    "amount": amount,
                     "section": "194C",
                     "tds_rate": 1.0,
-                    "tds_amount": float(pmt.amount) * 0.01,
+                    "tds_amount": round(amount * 0.01, 2),
                 }
             )
-        total_tds = sum(d["tds_amount"] for d in data)
-        return Response({"entries": data, "total_tds": total_tds, "count": len(data)})
+        results = [
+            {
+                "date": d["date"],
+                "section": d["section"],
+                "account": d["party_name"],
+                "pan": d["party_gstin"],
+                "voucher_number": d["voucher_number"],
+                "amount": d["amount"],
+                "rate": d["tds_rate"],
+                "tax": d["tds_amount"],
+            }
+            for d in data
+        ]
+        total_tds = round(sum(d["tds_amount"] for d in data), 2)
+        return Response(
+            {
+                "results": results,
+                "entries": data,
+                "company": company,
+                "total_tds": total_tds,
+                "count": len(data),
+            }
+        )
 
 
 class TCSReportViewSet(viewsets.ViewSet):
@@ -2420,14 +2831,17 @@ class TCSReportViewSet(viewsets.ViewSet):
 
     def list(self, request):
         tenant_id = _get_tenant_or_empty(request)
+        company = _company_info(tenant_id) if tenant_id else _company_info(None)
         if tenant_id is None:
-            return Response({"entries": [], "total_tcs": 0, "count": 0})
-        receipts = ReceiptVoucher.objects.all()
-        receipts = receipts.filter(tenant_id=tenant_id)
+            return Response(
+                {"results": [], "entries": [], "company": company, "total_tcs": 0, "count": 0}
+            )
+        receipts = ReceiptVoucher.objects.filter(tenant_id=tenant_id)
         receipts = _date_filter(receipts, request)
 
         data = []
         for rcpt in receipts.select_related("party").order_by("date"):
+            amount = float(rcpt.amount)
             data.append(
                 {
                     "id": str(rcpt.uuid),
@@ -2435,14 +2849,35 @@ class TCSReportViewSet(viewsets.ViewSet):
                     "party_name": rcpt.party.name if rcpt.party else "",
                     "party_gstin": rcpt.party.gstin if rcpt.party else "",
                     "voucher_number": rcpt.voucher_number,
-                    "amount": float(rcpt.amount),
+                    "amount": amount,
                     "section": "206C",
                     "tcs_rate": 0.1,
-                    "tcs_amount": float(rcpt.amount) * 0.001,
+                    "tcs_amount": round(amount * 0.001, 2),
                 }
             )
-        total_tcs = sum(d["tcs_amount"] for d in data)
-        return Response({"entries": data, "total_tcs": total_tcs, "count": len(data)})
+        results = [
+            {
+                "date": d["date"],
+                "section": d["section"],
+                "account": d["party_name"],
+                "pan": d["party_gstin"],
+                "voucher_number": d["voucher_number"],
+                "amount": d["amount"],
+                "rate": d["tcs_rate"],
+                "tax": d["tcs_amount"],
+            }
+            for d in data
+        ]
+        total_tcs = round(sum(d["tcs_amount"] for d in data), 2)
+        return Response(
+            {
+                "results": results,
+                "entries": data,
+                "company": company,
+                "total_tcs": total_tcs,
+                "count": len(data),
+            }
+        )
 
 
 class DaybookViewSet(viewsets.ViewSet):
