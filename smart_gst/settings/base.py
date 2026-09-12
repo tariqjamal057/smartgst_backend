@@ -229,6 +229,8 @@ VANAYA_GSTIN = env("VANAYA_GSTIN", default="33CGFPA6633Q4Z4")
 VANAYA_USERNAME = env("VANAYA_USERNAME", default="TN_NT2.21614")
 VANAYA_STATE_CODE = env("VANAYA_STATE_CODE", default="33")
 VANAYA_IP_USR = env("VANAYA_IP_USR", default="137.232.3.35")
+VANAYA_CUST_ID = env("VANAYA_CUST_ID", default="taxmatetest")
+VANAYA_DEFAULT_OTP = env("VANAYA_DEFAULT_OTP", default="")
 VANAYA_PRIVATE_KEY_PATH = env(
     "VANAYA_PRIVATE_KEY_PATH",
     default=str(BASE_DIR / "vanaya" / "keys" / "taxmate.p8.pem"),
