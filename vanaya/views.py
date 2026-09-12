@@ -1,3 +1,4 @@
+from django.http import QueryDict
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -35,6 +36,10 @@ class VanayaViewSet(viewsets.ViewSet):
     permission_classes = (IsAuthenticated,)
 
     def _build_client(self, data: dict) -> VanayaClient:
+        # QueryDict.dict() keeps the last value per key (scalars); plain dicts
+        # come from serializers / POST bodies and already hold scalar values.
+        if isinstance(data, QueryDict):
+            data = data.dict()
         merged = dict(data or {})
         if merged.get("ip") and not merged.get("ip_usr"):
             merged["ip_usr"] = merged.pop("ip")

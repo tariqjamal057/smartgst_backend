@@ -10,10 +10,12 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from django.conf import settings
 from django.core.cache import cache
+from django.http import QueryDict
 from django.test import SimpleTestCase
 
 from . import crypto
 from .services import AUTHENTICATE_PATH, RETURNS_PATH, VanayaClient, VanayaError
+from .views import VanayaViewSet
 
 
 def _aes_ecb_encrypt(key_bytes: bytes, data: bytes) -> bytes:
@@ -190,6 +192,20 @@ class VanayaClientTests(SimpleTestCase):
             java_class_dir=self.class_dir,
             timeout=10,
         )
+
+    def test_build_client_normalizes_querydict_scalar_values(self):
+        # GET endpoints pass request.query_params (a QueryDict). Values must
+        # stay scalars, not lists, or the signed headers break ("cust_id" as
+        # ['taxmatetest']). Regresses the 502 seen on /vanaya/search/.
+        data = QueryDict(
+            "gstin=27AAACR5055K1Z7&username=TN_NT2.21614&cust_id=taxmatetest&ip_usr=137.232.3.35"
+        )
+        client = VanayaViewSet()._build_client(data)
+        self.assertIsInstance(client.gstin, str)
+        self.assertEqual(client.gstin, "27AAACR5055K1Z7")
+        self.assertEqual(client.username, "TN_NT2.21614")
+        self.assertEqual(client.cust_id, "taxmatetest")
+        self.assertEqual(client.ip_usr, "137.232.3.35")
 
     def test_public_search_needs_no_session_and_base64_decodes(self):
         payload = {
