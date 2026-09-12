@@ -33,7 +33,7 @@ public class GstOtpEncryptor {
         // Arguments Check for general encryption flows
         if (args.length < 5) {
             System.err.println("Error: Missing arguments.");
-            System.err.println("Usage: java GstOtpEncryptor \"<action>\" \"<username>\" \"<gst_public_key_path>\" \"<raw_app_key>\" \"<output_type>\"");
+            System.err.println("Usage: java GstOtpEncryptor \"<action>\" \"<username>\" \"<gst_public_key_path>\" \"<raw_app_key>\" \"<output_type>\" [\"<otp>\"]");
             System.exit(1);
         }
 
@@ -41,7 +41,9 @@ public class GstOtpEncryptor {
         String userName = args[1];
         String publicKeyPath = args[2];
         String rawAppKeyString = args[3];
-        String outputType = args[4]; 
+        String outputType = args[4];
+        // Optional 6th argument: the OTP to encrypt. Falls back to FIXED_OTP.
+        String otp = args.length > 5 ? args[5] : FIXED_OTP;
 
         try {
             byte[] bytesData = rawAppKeyString.getBytes("UTF-8");
@@ -57,7 +59,7 @@ public class GstOtpEncryptor {
             Key aesKey = new SecretKeySpec(bytesData, "AES");
             Cipher aesCipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
             aesCipher.init(Cipher.ENCRYPT_MODE, aesKey);
-            byte[] encryptedOtpBytes = aesCipher.doFinal(FIXED_OTP.getBytes("UTF-8"));
+            byte[] encryptedOtpBytes = aesCipher.doFinal(otp.getBytes("UTF-8"));
             String encryptedOtp = Base64.getEncoder().encodeToString(encryptedOtpBytes);
 
             // 3. Selective programmatic return routing

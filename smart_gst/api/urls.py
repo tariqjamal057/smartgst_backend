@@ -10,6 +10,7 @@ router = DefaultRouter()
 urlpatterns = [
     path("accounts/", include("core.urls")),
     path("accounting/", include("accounting.urls")),
+    path("vanaya/", include("vanaya.urls")),
     path("gst_engine/", include("gst_engine.urls")),
     path("gsp_integration/", include("gsp_integration.urls")),
     path("action_queue/", include("action_queue.urls")),

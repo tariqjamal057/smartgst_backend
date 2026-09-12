@@ -1,0 +1,1062 @@
+{
+  "info": {
+    "_postman_id": "8932b050-528b-4f2e-8296-d19ce7fa27c0",
+    "name": "Vanaya API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "22191056"
+  },
+  "item": [
+    {
+      "name": "Send OTP",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "cust_id",
+            "value": "taxmatetest",
+            "type": "text"
+          },
+          {
+            "key": "X-Asp-Auth-Token",
+            "value": "v2.0:taxmatetest::TXN202609041632413551:20260904163241+0530:33CGFPA6633Q4Z4:OTPREQUEST",
+            "type": "text"
+          },
+          {
+            "key": "X-Asp-Auth-Signature",
+            "value": "MeR6j1nO0XmdffGCYRo0rUhixBJmruyal2ygvRGGVGiab2XkDPuAHx8dWHhvhlHL5hHWsQzwBTzILEIu71O6e96kbMjf9pNp8SMx2QSqM6K4PlYHyiTHmWKJYyU5jec5QmU0YGoMuCRChDHdcRlR5tmXDNZJpENR/8XwrAm2T9cs82q5ELQ4b1ZYk8cu2lM6gIBg5JLZtJn0a0+0po/6pFwWwIPcda+NRkPXki/+DzvFBbqHDXYA94rRXZ1nYjY/2U493fIweEm0LAmQ6bWMoW7rbB52bMQwv6UyrRD4Z4raGIkjAXnGjpcXUNPMO6SxQ1u5QsPDtcPNr1VFSRQQpg==",
+            "type": "text"
+          },
+          {
+            "key": "state-cd",
+            "value": "33",
+            "type": "text"
+          },
+          {
+            "key": "ip-usr",
+            "value": "137.232.3.35",
+            "type": "text"
+          },
+          {
+            "key": "txn",
+            "value": "TXN202609041632413551",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"action\": \"OTPREQUEST\",\r\n  \"username\": \"TN_NT2.21614\",\r\n  \"app_key\": \"KrOzzd1G4Ip/3LJv31PjzaNvFZuiS0GSIRPJ9BX+PMq8iXZ6rVuBCS4ZsWTlNsNn+i18njQDyCqlxddawid89pHyHg3dSCbBnzdO//uMLopjy5Y6eZQCn4m//rYP95GhlrEg+CXnSr4rcJWIBUz2eIJ7EHMcGHg7YiVYFTCU3CTYZettUAwMdpKqiBRmwX4n0Q2dnuzoWSaDQLXiGa0KN7OGsqigSnvpMDSUaOiRVcnW/E3JX/ETUOhp0maaFTLJeGFDtyFd5Rp0NjWqbvQcBqyWkHrjN8HlxzxZNGgU/khc+8XAcRHTk4HVxSAagod2d8Hw6vPGF0E/QX6as/OIXg==\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://yoda.api.vayanagsp.in/gus/taxpayerapi/v1.0/authenticate",
+          "protocol": "https",
+          "host": [
+            "yoda",
+            "api",
+            "vayanagsp",
+            "in"
+          ],
+          "path": [
+            "gus",
+            "taxpayerapi",
+            "v1.0",
+            "authenticate"
+          ]
+        }
+      },
+      "response": [
+        {
+          "name": "Send OTP",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "cust_id",
+                "value": "taxmatetest",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "X-Asp-Auth-Token",
+                "value": "v2.0:taxmatetest::TXN20260626164434169A:20260626164434+0530:33CGFPA6633Q4Z4:OTPREQUEST",
+                "type": "text"
+              },
+              {
+                "key": "X-Asp-Auth-Signature",
+                "value": "GEJ28cF8VuLY22HmRWO1RiQ4vmF+gUfDE+o9HTM9VKfIr0EQ6Y4kqbD78+AQ11IDBnDwPYCHfYSTAaQ9pZPaBheMf8JDUt432Ws4B4Ukdg5CzgcpS2CuIQiqKv2822pZ4XyyaN9/4rOyM65EVEe0TZJCN2TFp9m77tMvV1quh0NjmQ4rMyvRjy6/Fjl8wUiD5l/hAhhCY3wSMoEgiGGCtxSJP4oQoqK5ewN0rHS8ErfAw3ReUh4jmwx2cOCw06m8BbkT3L5CxB88rDUsHIJcPnXbgXinro1JsL08XwslmZoaNWs/VukIDRXyBOU2dXYZb1av3rv1BQwsjwd8DTRLdg==",
+                "type": "text"
+              },
+              {
+                "key": "state-cd",
+                "value": "33",
+                "type": "text"
+              },
+              {
+                "key": "ip-usr",
+                "value": "137.232.3.35",
+                "type": "text"
+              },
+              {
+                "key": "txn",
+                "value": "TXN20260626164434169A",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"action\": \"OTPREQUEST\",\r\n    \"username\": \"TN_NT2.21614\",\r\n    \"app_key\": \"T9Zij57Hxp7fcKI0V7RPvI3l7dW5MwiR/Bh1vHa/TwPm9GfI2NAUUtsCiLmYlXDALS0xduQCW8Ws0UIXgJDeGp++ILzMohyEe5974RgRoprz8Ai5V3v3Vo2E4JZhfZDW8UU1JFNS61pAaRBLwpvsnFzhcoBrk2izVI+Y0dRxmotjH8z1FRSXe92WP7jzRI6JWKDynL/x6VxhQpSFae/UtI1MpKu9X0Xw3ErhtQFkCG4blEeuGKlnrHMCphGvw5yM23NAY3HoVGX13T5jq275RSnlTzpbo8p+2U4BerAvZdoLMseHv5coHL7RpPEqHUGuz2sFRPcV3adtJu2RJd26Iw==\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://yoda.api.vayanagsp.in/gus/taxpayerapi/v1.0/authenticate",
+              "protocol": "https",
+              "host": [
+                "yoda",
+                "api",
+                "vayanagsp",
+                "in"
+              ],
+              "path": [
+                "gus",
+                "taxpayerapi",
+                "v1.0",
+                "authenticate"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": ":status",
+              "value": 200
+            },
+            {
+              "key": "date",
+              "value": "Fri, 26 Jun 2026 11:17:24 GMT"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json;charset=utf-8"
+            },
+            {
+              "key": "content-length",
+              "value": "17"
+            },
+            {
+              "key": "vary",
+              "value": "accept-encoding"
+            },
+            {
+              "key": "set-cookie",
+              "value": "TS01bc0718=0140752c7324b349c2c16971946a682a3bfdca92283a16bfa18af4c7a394d7875852568c066db60d889791fb68e56e772ec5c49a9808dcaba3054c82cbc94a94cf7221ca0e87f13412dc412e9b47aef7cad8aee00430febb66c9c633bebd02d71671d0f5c2;path=/taxpayerapi/v1.0;domain=devapi.gst.gov.in;HttpOnly"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"status_cd\": \"1\"\n}"
+        },
+        {
+          "name": "Send OTP",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "cust_id",
+                "value": "taxmatetest",
+                "type": "text"
+              },
+              {
+                "key": "X-Asp-Auth-Token",
+                "value": "v2.0:taxmatetest::TXN2026073016030390B2:20260730160303+0530:33CGFPA6633Q4Z4:OTPREQUEST",
+                "type": "text"
+              },
+              {
+                "key": "X-Asp-Auth-Signature",
+                "value": "XOwvm3Mm5qfiznRsp+1sPPEn4zC/4s1pYUJx+7alCxCCcBSdwGPgruJplXcf3a/DJp7Fvm5BJBVedV86Dzn79Q39aUcejr9c0vQ7x5JyykpSUiadeEAx1NWVeYhlzTlLiXw6Q3tPdWTakdvBc3OnuqmSjsUuHDzcYHmCsRZueQvgMuVLU6loRf53syrPf16Tu/un2Y2wx1CMfN2FdmsXSq5ROiP6W7wY1K7Ac+c8Iv9N6srgGjqP/+GZnod7GFM2vkJ6EeM1hL9eihjmX3u3E4u789obNsYdt8pBYt+s0BjCOWUwygOFMqf9l/m4DGiravit/hyU8QImyJRvJpHMDQ==",
+                "type": "text"
+              },
+              {
+                "key": "state-cd",
+                "value": "33",
+                "type": "text"
+              },
+              {
+                "key": "ip-usr",
+                "value": "137.232.3.35",
+                "type": "text"
+              },
+              {
+                "key": "txn",
+                "value": "TXN2026073016030390B2",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"action\": \"OTPREQUEST\",\r\n  \"username\": \"TN_NT2.21614\",\r\n  \"app_key\": \"MC7rreCAieWXGNaG+mjHGlkBnvvVukDnomxTIU+C+A16XdzsMFBTi92ygd3tt5HATOM4OrOX9bMqIp4/a2r6RiNodKqCOIbfYdaspI+igCj+/C9MI1WMX0bMJL+aP2VoryFQOOXXtsZm5SSffeMOLjorjcAqN/Z1R0pbIb4Iyov9VfL/LHF33QskW8amA58pHm40OvyXRmhWlnoSW0NMSh9gl2oGm7bV8Hswy8GxS4jwJVsg4uUwntvA0e2kSYc5Q1UTDPM0s5gl5n5QIgu9eLNb9KqU4tQ/bbgVENNRRYWiSMetFayJdo3/he5YD2YEICMMlBlHkOHG7N5nO5FTxg==\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://yoda.api.vayanagsp.in/gus/taxpayerapi/v1.0/authenticate",
+              "protocol": "https",
+              "host": [
+                "yoda",
+                "api",
+                "vayanagsp",
+                "in"
+              ],
+              "path": [
+                "gus",
+                "taxpayerapi",
+                "v1.0",
+                "authenticate"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": ":status",
+              "value": 200
+            },
+            {
+              "key": "date",
+              "value": "Thu, 30 Jul 2026 10:34:02 GMT"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json;charset=iso-8859-1"
+            },
+            {
+              "key": "content-length",
+              "value": "267"
+            },
+            {
+              "key": "set-cookie",
+              "value": "TS017e7b56=0140752c73ed27fd181320b45702e389c55566a1a133acb9ae3d4a2306d9390494535c206fb702c8d4034644947b9405efb5d86d08308a4f9bc4acced48999430a4606c8842a50bb2298b554e8facd8af66d4cc5b4865ba7d03ba04d7747f83aa46e098642c2f6f05759f26679be4cb4a1acdedb0439681ab06a19ebd6ac483f2d050ed63ec29ff04d12d528765234c2d769c60e59b7aa3e49c9e6949ab0b967a670bf5ef259ae45ddb2b901e0176f3c5318a8ac240d8510dac1c40c4a14f3de8b0d6213e3;Path=/;HttpOnly"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"status_cd\": \"0\",\n    \"error\": {\n        \"message\": \"GSTIN/UIN/Temporary ID: 33CGFPA6633Q4Z4 has disabled API access, or your GSP/ASP name has not been allowed access. The taxpayer may login to the GST Common Portal and update the 'Manage API Access' settings\",\n        \"error_cd\": \"AUTH002\"\n    }\n}"
+        }
+      ]
+    },
+    {
+      "name": "OTP Request API",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "cust_id",
+            "value": "taxmatetest",
+            "type": "text",
+            "disabled": true
+          },
+          {
+            "key": "X-Asp-Auth-Token",
+            "value": "v2.0:taxmatetest::TXN2026090416324279B6:20260904163242+0530:33CGFPA6633Q4Z4:AUTHTOKEN",
+            "type": "text"
+          },
+          {
+            "key": "X-Asp-Auth-Signature",
+            "value": "jpG4tAUZAhpuAuimTdNdTMqYa7agSeYixXWaOSdZDGCKUOZYVRlV7RkO7nufqlNzYP4RWLP5iQ9X8O0CQc2XS1hSdqyh6nrh3bnaqzA5qCRaGk4i6xfJqixsBYaIjTbahB66aCmVsH3AV+rWYxxPONV13EV3fyfkOh5gppcrvM1TfvB07uWFv9OYMaFQnrfbjXkGCZGwE38rJBOSMa6qww4L8F5nxNF7aEF7eX6Q1WSbSpOuM0jQ8WG0CVmxRV9iBBDBKwwra92m6XPLzWpg0NLT30ZzK6OiCafVSLRwfkstPwz6UQifsorMcZ+9AfVEf/9h8YtAi4kB6HHA/n/TAg==",
+            "type": "text"
+          },
+          {
+            "key": "state-cd",
+            "value": "33",
+            "type": "text"
+          },
+          {
+            "key": "ip-usr",
+            "value": "137.232.3.35",
+            "type": "text"
+          },
+          {
+            "key": "txn",
+            "value": "TXN2026090416324279B6",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"action\": \"AUTHTOKEN\",\r\n  \"username\": \"TN_NT2.21614\",\r\n  \"app_key\": \"CjfeanEf5aFQnPCWL83NAHOmpFwfy3mz1w+PH4Ad24PkwIuVJqIibPk3Umf3Lr5jCfD9u4jQW+2KNleS0mx0OKwao44NYlb1vCSIQ4nrVnwvbCs11NjfHnLw3y0nzT2VW7KuI/T4BBd/jVvXsjqBrXhxcSHHaXZ2C/CcPCJH8p5xm+kZFmzCqK5abD+0uNyjMwF7BwzGxet/2ZaSGlW/uT2PCsz2AfsfOhGj7JIRMjoaprm9/IXvGFJBw2bzVddDx+AxVAIY/lwhMzyQVNa6hU6vIwhdqcySFzFjdtYg3sPsTu3h5DCWR2DqAtW08rsiJXHfGzfXx9TQzdFq7biolg==\",\r\n  \"otp\": \"KqH4/69LHsIaGDbNb/2WGQ==\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://yoda.api.vayanagsp.in/gus/taxpayerapi/v1.0/authenticate",
+          "protocol": "https",
+          "host": [
+            "yoda",
+            "api",
+            "vayanagsp",
+            "in"
+          ],
+          "path": [
+            "gus",
+            "taxpayerapi",
+            "v1.0",
+            "authenticate"
+          ]
+        }
+      },
+      "response": [
+        {
+          "name": "OTP Request API",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "cust_id",
+                "value": "taxmatetest",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "X-Asp-Auth-Token",
+                "value": "v2.0:taxmatetest::TXN202606261231553A82:20260626123155+0530:33CGFPA6633Q4Z4:AUTHTOKEN",
+                "type": "text"
+              },
+              {
+                "key": "X-Asp-Auth-Signature",
+                "value": "vZvrzj8I2g4PyLxFTR+p3NytsAD2IHjpku1Fm5JhglsjKS+3HMfsPz1vClzAsPgNjctt0X8gYzG0Nsza67ay7qP9JYN/3nNAEGmrf3P59wxhA6tvP8wduGV13jqDQ4M6BcP5hgYdqfDJFjPubub+5jJXSS83ps/bDFG2kVGgWH6MAokjEfEl6N42iGeJVAI5tXBWypC+mbmpn/S1i3nHh1qPh7Gcdbpu8la8JhGp8wJ4D0+3UuZGHryALCieUHXNphwidaSbJWZbXI6scwpH/UejcL2tn4EwYA5n1rW5JpdH1Et3hLRpcyDOjBU9/qWpjGLuZDqCNgdKo9dYHb6m/A==",
+                "type": "text"
+              },
+              {
+                "key": "state-cd",
+                "value": "33",
+                "type": "text"
+              },
+              {
+                "key": "ip-usr",
+                "value": "137.232.3.35",
+                "type": "text"
+              },
+              {
+                "key": "txn",
+                "value": "TXN202606261231553A82",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"action\": \"AUTHTOKEN\",\r\n  \"username\": \"TN_NT2.21614\",\r\n  \"app_key\": \"JmVYrQdHRMMyHPH3N77b8u21n6vhq8FAvxP8RBqRh+MaEG9Z3vV8+DyoGC06O2Aa/5o6O/QVpIUHNl8gRPAjC++iLXUI8jSIX0W79bdYuG2sLMpJNal0kil3nZU/5NaTOiba1nAjBXj1JERO41UOyQTFjcl3rCzdg/OhFFofBqDMdKse/h8Kko0Gd9rf+/ZCY+RUvgeBcBEC7NY49YSUNatGykRhqUkpnQvvoQOOwHDKGCcQzNA3JI3ERMgipd9vgaEMB4tsLOPhaxWVzDurAvJTzvpKNztyqJUpKIuMvIcA7IQl63fg6nnukQsI8gL8qwR7pbiJcT5hK/yqinH+EQ==\",\r\n  \"otp\": \"AN6WeYSAgdb7221BF18wXw==\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://yoda.api.vayanagsp.in/gus/taxpayerapi/v1.0/authenticate",
+              "protocol": "https",
+              "host": [
+                "yoda",
+                "api",
+                "vayanagsp",
+                "in"
+              ],
+              "path": [
+                "gus",
+                "taxpayerapi",
+                "v1.0",
+                "authenticate"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": ":status",
+              "value": 200
+            },
+            {
+              "key": "date",
+              "value": "Fri, 26 Jun 2026 07:03:41 GMT"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json;charset=utf-8"
+            },
+            {
+              "key": "content-length",
+              "value": "151"
+            },
+            {
+              "key": "vary",
+              "value": "accept-encoding"
+            },
+            {
+              "key": "set-cookie",
+              "value": "TS01bc0718=0140752c735a27b1225135768b6b5feba49b87242b352b60101da331e923e58b113de50d8b57ef9b86f6f7a3a079be9f1d31262e9858b6e40be19f5e902dbb68e29c6657ad77055846030b89d8255ba3c7bd775ef125a02e65cb45e1ca35af8d47de6f56c6;path=/taxpayerapi/v1.0;domain=devapi.gst.gov.in;HttpOnly"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"status_cd\": \"1\",\n    \"auth_token\": \"e5c739907d914fcf82dc887e3d6a89bd\",\n    \"expiry\": 360,\n    \"sek\": \"nN0tAnuYEycuaMYmNh0ZF/nBHc79ifHe2RKMil5+YgRoVIPjHLNGc+jtVCabr4X5\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Get GSTN Info",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "cust_id",
+            "value": "taxmatetest",
+            "type": "text",
+            "disabled": true
+          },
+          {
+            "key": "X-Asp-Auth-Token",
+            "value": "v2.0:taxmatetest::TXN202607271437184AC7:20260727143718+0530:33CGFPA6633Q4Z4:TP",
+            "type": "text"
+          },
+          {
+            "key": "X-Asp-Auth-Signature",
+            "value": "hcLm2ThIJy+nTFAvP7lOQRzjxsNWWt3aV4cFy9KktoDOEJ30kI+PskDQIn7XT1wLCCOg5Kgi/Cg6E1H+dGVrJOcSzMYEbHIDbgEsjrBwp9kA0IEDAnWYbWI09Q441Z0ynwuvgnT9Nvn1F3ko/PxQDxjRsE06e0RHmyGEC5doq7mjcsIxFgxzYvuPouEYSvGR6Kn1w+cdiXnnQZkQ+kECok47T3waOrshOMKa7QCD2G6NP47wJigC/MrMAQUBCYHegMCliytn439uGNoM95WNqx3NsQksU8+nUkywXqbVFEnzCaih8JVLC0WLekq8Ho/3DTPMxECPYKl6dS4/SJ76nQ==",
+            "type": "text"
+          },
+          {
+            "key": "state-cd",
+            "value": "33",
+            "type": "text"
+          },
+          {
+            "key": "ip-usr",
+            "value": "137.232.3.35",
+            "type": "text"
+          },
+          {
+            "key": "txn",
+            "value": "TXN202607271437184AC7",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://yoda.api.vayanagsp.in/gus/commonapi/v1.3/search?action=TP&gstin=33CGFPA6633Q4Z4",
+          "protocol": "https",
+          "host": [
+            "yoda",
+            "api",
+            "vayanagsp",
+            "in"
+          ],
+          "path": [
+            "gus",
+            "commonapi",
+            "v1.3",
+            "search"
+          ],
+          "query": [
+            {
+              "key": "action",
+              "value": "TP"
+            },
+            {
+              "key": "gstin",
+              "value": "33CGFPA6633Q4Z4"
+            }
+          ]
+        }
+      },
+      "response": [
+        {
+          "name": "Get GSTN Info",
+          "originalRequest": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "cust_id",
+                "value": "taxmatetest",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "X-Asp-Auth-Token",
+                "value": "v2.0:taxmatetest::TXN202607271437184AC7:20260727143718+0530:33CGFPA6633Q4Z4:TP",
+                "type": "text"
+              },
+              {
+                "key": "X-Asp-Auth-Signature",
+                "value": "hcLm2ThIJy+nTFAvP7lOQRzjxsNWWt3aV4cFy9KktoDOEJ30kI+PskDQIn7XT1wLCCOg5Kgi/Cg6E1H+dGVrJOcSzMYEbHIDbgEsjrBwp9kA0IEDAnWYbWI09Q441Z0ynwuvgnT9Nvn1F3ko/PxQDxjRsE06e0RHmyGEC5doq7mjcsIxFgxzYvuPouEYSvGR6Kn1w+cdiXnnQZkQ+kECok47T3waOrshOMKa7QCD2G6NP47wJigC/MrMAQUBCYHegMCliytn439uGNoM95WNqx3NsQksU8+nUkywXqbVFEnzCaih8JVLC0WLekq8Ho/3DTPMxECPYKl6dS4/SJ76nQ==",
+                "type": "text"
+              },
+              {
+                "key": "state-cd",
+                "value": "33",
+                "type": "text"
+              },
+              {
+                "key": "ip-usr",
+                "value": "137.232.3.35",
+                "type": "text"
+              },
+              {
+                "key": "txn",
+                "value": "TXN202607271437184AC7",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "https://yoda.api.vayanagsp.in/gus/commonapi/v1.3/search?action=TP&gstin=33CGFPA6633Q4Z4",
+              "protocol": "https",
+              "host": [
+                "yoda",
+                "api",
+                "vayanagsp",
+                "in"
+              ],
+              "path": [
+                "gus",
+                "commonapi",
+                "v1.3",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "TP"
+                },
+                {
+                  "key": "gstin",
+                  "value": "33CGFPA6633Q4Z4"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": ":status",
+              "value": 200
+            },
+            {
+              "key": "date",
+              "value": "Mon, 27 Jul 2026 09:08:08 GMT"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json;charset=iso-8859-1"
+            },
+            {
+              "key": "content-length",
+              "value": "786"
+            },
+            {
+              "key": "set-cookie",
+              "value": "TS017e7b56=0140752c730b0c7ab2070e70f686b877fb650c47d9c4af0a160727e04723eb864e90c021feffd31bc2476e46a83e4c26d557b7e8b4d1ed9719c7a83b558fdd9bdb5db7fc5d5378cf901051e8a209ea5b0fba8ab20dad867fe37a06ae043ebc6e0423ff08ee3f21112c55a999a066929bc5ff82eb91d005c5cb2b7133b319c944ebbd22fda82489fee333ae05a19730b4bbf7639dc5;Path=/;HttpOnly"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"status_cd\": \"1\",\n    \"data\": \"eyJzdGpDZCI6IlROMDE1Iiwic3RqIjoiQVJJWUFMVVIiLCJkdHkiOiJSZWd1bGFyIiwibGdubSI6IlRheG1hdGUgVGVjaG5vbG9neSBQcml2YXRlIExpbWl0ZWQiLCJhZGFkciI6W10sImN4ZHQiOiIiLCJuYmEiOlsiRXhwb3J0Il0sImdzdGluIjoiMzNDR0ZQQTY2MzNRNFo0IiwibHN0dXBkdCI6IjAxLzA0LzIwMjUiLCJyZ2R0IjoiMDEvMDQvMjAyNSIsImN0YiI6IlByb3ByaWV0b3JzaGlwIiwicHJhZHIiOnsiYWRkciI6eyJibm0iOiJHb2xkIEhpbGwgU3VwcmVtZSIsImxvYyI6IkVsZWN0cm9uaWMgQ2l0eSBQaGFzZSAyIiwic3QiOiJTaGFudGlwdXJhIENyb3NzIFJvYWRzIiwiYm5vIjoiMjUyIiwiZHN0IjoiIiwibG9jYWxpdHkiOiIiLCJsdCI6IiIsInBuY2QiOiI2MDAxMjMiLCJsYW5kTWFyayI6IiIsInN0Y2QiOiJUYW1pbCBOYWR1IiwiZ2VvY29kZWx2bCI6Ik5BIiwiZmxubyI6IiIsImxnIjoiIn0sIm50ciI6IkV4cG9ydCJ9LCJ0cmFkZU5hbSI6IkdTVE4iLCJjdGpDZCI6IjEwMDEiLCJzdHMiOiJBY3RpdmUiLCJjdGoiOiIiLCJlaW52b2ljZVN0YXR1cyI6Ik5vIn0=\",\n    \"rek\": \"\",\n    \"hmac\": \"\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "GSTR1 Return",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "cust_id",
+            "value": "taxmatetest",
+            "type": "text",
+            "disabled": true
+          },
+          {
+            "key": "X-Asp-Auth-Token",
+            "value": "v2.0:taxmatetest::TXN20260704121120AE01:20260704121120+0530:33CGFPA6633Q4Z4:GETPREF",
+            "type": "text"
+          },
+          {
+            "key": "X-Asp-Auth-Signature",
+            "value": "CilMZhDwG+MAuqmY+hO14HYH8Rfga1u1JgW+EjIt2OxxVTYVCSuMLeYyoqng9XfsazCVaZ5wmnA6V1Od6Yy006G/orw0aUoeiC/ZmXnxDobUSfC1zO/3pS52DXb0IUlVh45YVl9gUzTyC1RGasGEWiqez6oqXE6ICZLy4rS+HyO7lEU+nnA4CKKVRVImpOKCK58jYMgS//z8/xMqzimtzAAFkMbxTBZnnMOXyC0qjW+i+akzTAQZB3+n/HOWM9WrfvjDUnm8qTj1U8x8ZVES95ZNUiM+Vs5caTNsU8ALcvtnTFCdnh54WdrtRurB7oAIX5XjbZ9cYtzepoWmn0NBOA==",
+            "type": "text"
+          },
+          {
+            "key": "state-cd",
+            "value": "33",
+            "type": "text"
+          },
+          {
+            "key": "ip-usr",
+            "value": "137.232.3.35",
+            "type": "text"
+          },
+          {
+            "key": "txn",
+            "value": "TXN20260704121120AE01",
+            "type": "text"
+          },
+          {
+            "key": "auth-token",
+            "value": "07a656662a7a4cee939c8f2fcbc77547",
+            "type": "text"
+          },
+          {
+            "key": "username",
+            "value": " TN_NT2.21614",
+            "type": "text"
+          },
+          {
+            "key": "gstin",
+            "value": " 33CGFPA6633Q4Z4",
+            "type": "text"
+          },
+          {
+            "key": "ret_period",
+            "value": " 062026",
+            "type": "text",
+            "disabled": true
+          },
+          {
+            "key": "rtn_typ",
+            "value": " GSTR1",
+            "type": "text",
+            "disabled": true
+          },
+          {
+            "key": "userrole",
+            "value": " GSTR1",
+            "type": "text",
+            "disabled": true
+          },
+          {
+            "key": "api_version",
+            "value": " 2.0",
+            "type": "text",
+            "disabled": true
+          },
+          {
+            "key": "api_action",
+            "value": "GETPREF",
+            "type": "text",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "https://yoda.api.vayanagsp.in/gus/taxpayerapi/v1.0/returns?action=GETPREF&gstin=33CGFPA6633Q4Z4&fy=2025-26",
+          "protocol": "https",
+          "host": [
+            "yoda",
+            "api",
+            "vayanagsp",
+            "in"
+          ],
+          "path": [
+            "gus",
+            "taxpayerapi",
+            "v1.0",
+            "returns"
+          ],
+          "query": [
+            {
+              "key": "action",
+              "value": "GETPREF"
+            },
+            {
+              "key": "gstin",
+              "value": "33CGFPA6633Q4Z4"
+            },
+            {
+              "key": "fy",
+              "value": "2025-26"
+            }
+          ]
+        }
+      },
+      "response": [
+        {
+          "name": "GSTR1 Return",
+          "originalRequest": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "cust_id",
+                "value": "taxmatetest",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "X-Asp-Auth-Token",
+                "value": "v2.0:taxmatetest::TXN20260703023026BE15:20260703023026+0530:33CGFPA6633Q4Z4:GETPREF",
+                "type": "text"
+              },
+              {
+                "key": "X-Asp-Auth-Signature",
+                "value": "KLWztwHU84KPoo9MCwuyTd4J3ARdPnDwBKj+MvVmo1rcGxEb841nqPnPdc7Kgh1irbHy0Y0OTV798kSwGb/YWNjFtijdxwcr3KyqidU1s6V1BuK1dleS0G8lf+4/KbtXkSVMmU4hjHVpOJfUwF3LrkN7DvlnQNKwm/fe+nvbjYrcNHy0x1EEtduH6sadRTid4YB0F1hOUQjU+rjVzk7DTMOLaNY8LTQ0bCKnHj8Z47OrdsN4tItmn9GSP43o5hEcDBFwKGiSVJlBCMXX543Gjyhp3JBKcBN2oeXMWX5kFXkbXzfm6qixYZZXRwzljRAo30NA0OeDwOnyLXdC+L4+cA==",
+                "type": "text"
+              },
+              {
+                "key": "state-cd",
+                "value": "33",
+                "type": "text"
+              },
+              {
+                "key": "ip-usr",
+                "value": "137.232.3.35",
+                "type": "text"
+              },
+              {
+                "key": "txn",
+                "value": "TXN20260703023026BE15",
+                "type": "text"
+              },
+              {
+                "key": "auth-token",
+                "value": "50a8cbe96e7b40e58557d84622561867",
+                "type": "text"
+              },
+              {
+                "key": "username",
+                "value": " TN_NT2.21614",
+                "type": "text"
+              },
+              {
+                "key": "gstin",
+                "value": " 33CGFPA6633Q4Z4",
+                "type": "text"
+              },
+              {
+                "key": "ret_period",
+                "value": " 062026",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "rtn_typ",
+                "value": " GSTR1",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "userrole",
+                "value": " GSTR1",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "api_version",
+                "value": " 2.0",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "api_action",
+                "value": "GETPREF",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "https://yoda.api.vayanagsp.in/gus/taxpayerapi/v1.0/returns?action=GETPREF&gstin=33CGFPA6633Q4Z4&fy=2025-26",
+              "protocol": "https",
+              "host": [
+                "yoda",
+                "api",
+                "vayanagsp",
+                "in"
+              ],
+              "path": [
+                "gus",
+                "taxpayerapi",
+                "v1.0",
+                "returns"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "GETPREF"
+                },
+                {
+                  "key": "gstin",
+                  "value": "33CGFPA6633Q4Z4"
+                },
+                {
+                  "key": "fy",
+                  "value": "2025-26"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": ":status",
+              "value": 200
+            },
+            {
+              "key": "date",
+              "value": "Thu, 02 Jul 2026 21:01:49 GMT"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json;charset=utf-8"
+            },
+            {
+              "key": "content-length",
+              "value": "434"
+            },
+            {
+              "key": "set-cookie",
+              "value": "TS01bc0718=0140752c73fb889ce58615f47489992c22d1580d7b3a16bfa18af4c7a394d7875852568c066db60d889791fb68e56e772ec5c49a9808dcaba3054c82cbc94a94cf7221ca0ecf66f4a7609da0b256a725cb3a84e835e6415fb722df3c3c91d7bbf73f5f8efe5c37e8a43a27aa205f2774b7c2e2a44c;path=/taxpayerapi/v1.0;domain=devapi.gst.gov.in;HttpOnly"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"status_cd\": \"1\",\n    \"data\": \"K4fL/H9ui8oV/X9roztiZcUNR/1lMSDWREPqW3Pv9xhVNpr1yKRI+egdH95AixgWvfcTmmPbSoRZo5QM/xg+MOZva0nsnrMBsLEqHqZsNQ8R8pO3ba4gHzy6qsDW5W80WnFrMQ6LRApA1qt32Mvg76xHWL2qwtm5YAWg8yGTHn+qYxHEvr81vRmSRMPqtB89cUfJ/rmK//NPoYn9ELAMOdyo56sjTHFPrvIw9HH/lqx4SX7dOKlDyjSUZ0gu6KB37ZWGrHAEnO77G/qxHZUijw==\",\n    \"rek\": \"k7X1BgOYnBVm/IlvvH+YGAfKR/zYAcj0cZkI2gfAz4dWNW1OT8Owm71cXQeMWCdn\",\n    \"hmac\": \"Urje8PfolxbVZ+rCYP8KXmeEDm6LZeo9ysmPbeGcRHM=\"\n}"
+        },
+        {
+          "name": "GSTR1 Return",
+          "originalRequest": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "cust_id",
+                "value": "taxmatetest",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "X-Asp-Auth-Token",
+                "value": "v2.0:taxmatetest::TXN202607030241227B6B:20260703024122+0530:33CGFPA6633Q4Z4:GETPREF",
+                "type": "text"
+              },
+              {
+                "key": "X-Asp-Auth-Signature",
+                "value": "NH8G7VKgrGtfTtcDJ1EAUJqUf4tRqQ6xMZhrYP0tq9gnI/Zw3rXiNNKTsGX77LkajlpE+EZGKGPWArpr1X9dPsHO0565LlWYDMRPS5EBIbc3xrECRHtTkeB2j+4K5Y5zRzstV8WysqTPi15t0iqvb08D9CD3NN/Ed34hlZ6kEOVSNNJX4U+Sa6XFiqF7xOXJjmrN6SmdtvBgvFhmxfnBPWCebsTNqa1rONKBqAGK0SUCrAGL02t9QkS3b+gqtd0mZU/bjANc+oLqzk5wu+s51j6CbV5+9Kemxsl3Sh+jdTZPMNHkA7Vb/MkuOmqNami9mBBvJR3r8k2BhbSSlmYMmA==",
+                "type": "text"
+              },
+              {
+                "key": "state-cd",
+                "value": "33",
+                "type": "text"
+              },
+              {
+                "key": "ip-usr",
+                "value": "137.232.3.35",
+                "type": "text"
+              },
+              {
+                "key": "txn",
+                "value": "TXN202607030241227B6B",
+                "type": "text"
+              },
+              {
+                "key": "auth-token",
+                "value": "50a8cbe96e7b40e58557d84622561867",
+                "type": "text"
+              },
+              {
+                "key": "username",
+                "value": " TN_NT2.21614",
+                "type": "text"
+              },
+              {
+                "key": "gstin",
+                "value": " 33CGFPA6633Q4Z4",
+                "type": "text"
+              },
+              {
+                "key": "ret_period",
+                "value": " 062026",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "rtn_typ",
+                "value": " GSTR1",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "userrole",
+                "value": " GSTR1",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "api_version",
+                "value": " 2.0",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "api_action",
+                "value": "GETPREF",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "https://yoda.api.vayanagsp.in/gus/taxpayerapi/v1.0/returns?action=GETPREF&gstin=33CGFPA6633Q4Z4&fy=2025-26",
+              "protocol": "https",
+              "host": [
+                "yoda",
+                "api",
+                "vayanagsp",
+                "in"
+              ],
+              "path": [
+                "gus",
+                "taxpayerapi",
+                "v1.0",
+                "returns"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "GETPREF"
+                },
+                {
+                  "key": "gstin",
+                  "value": "33CGFPA6633Q4Z4"
+                },
+                {
+                  "key": "fy",
+                  "value": "2025-26"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": ":status",
+              "value": 200
+            },
+            {
+              "key": "date",
+              "value": "Thu, 02 Jul 2026 21:11:54 GMT"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json;charset=utf-8"
+            },
+            {
+              "key": "content-length",
+              "value": "434"
+            },
+            {
+              "key": "set-cookie",
+              "value": "TS01bc0718=0140752c73fb889ce58615f47489992c22d1580d7b3a16bfa18af4c7a394d7875852568c066db60d889791fb68e56e772ec5c49a9808dcaba3054c82cbc94a94cf7221ca0ecf66f4a7609da0b256a725cb3a84e835e6415fb722df3c3c91d7bbf73f5f8efe5c37e8a43a27aa205f2774b7c2e2a44c;path=/taxpayerapi/v1.0;domain=devapi.gst.gov.in;HttpOnly"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"status_cd\": \"1\",\n    \"data\": \"Zxipcfiz8UzqauoUephsnInq3EFd5x1WIGRJ4x5LVe3gE+nKK2HB2LJ2qnXe3ON1eNb+ZPeBR14Wzsi8HcMtth0XV2yau4kjlwIeaiE8j97DdQcnYNvGX3x+5D8PSj9SiZyQf5P9pIwHe2nTYT+mlnemcdUfS8PmNsBssDrT/gvkt39KW/8kduxRrC1XTY4DzW9398BqOWAplZa9iRUr94C6nVzMEz9IHZChhjsMc3HpbrXKwdNhTmiaMQ1yWGnazPJm4J2tudg1am1x9fIphw==\",\n    \"rek\": \"4vdboKmKFn6gBp+YADr4ycGOxfFAqD+MUIHXR22IloFWNW1OT8Owm71cXQeMWCdn\",\n    \"hmac\": \"LEidJXK4wnTvJtOBA5Kc5mhbst0YU0DHmFw/HOOeKAE=\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Get File Details",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "cust_id",
+            "value": "taxmatetest",
+            "type": "text",
+            "disabled": true
+          },
+          {
+            "key": "X-Asp-Auth-Token",
+            "value": "v2.0:taxmatetest::TXN202606261650037018:20260626165003+0530:33CGFPA6633Q4Z4:GETPROFILE",
+            "type": "text"
+          },
+          {
+            "key": "X-Asp-Auth-Signature",
+            "value": "obGIewWckscL/pKQb0bdoSemYtzAM1T/ZCxW6WMb20i718CMV3ItLpS4cjp+MoHgz6vp6YAsOjAS4L5ysiho63bQ54BGMWs6Tfl1kPJWVMhrvqrvhe83IFDw5X7aGoDkIDkDNIbxIxTAABAY6vUjBn304QX8HCv5kSi4I1aeNFOZaHHDbqOCA81DdIv1G1Nz2CWKfAm4dUmfqvy0rJH+4nkiqPEugVa3LDrz6OpOq3JXtwuqGAwNC42eM9UOwWZU5wFyAvBOPFT64Pqan/95fdcdg83Uv8Woysy+HfkQ7BeOQccb4dVspMKKDWSCUBzvn6ad4dKz70U3JgF2yCNg3A==",
+            "type": "text"
+          },
+          {
+            "key": "state-cd",
+            "value": "33",
+            "type": "text"
+          },
+          {
+            "key": "ip-usr",
+            "value": "137.232.3.35",
+            "type": "text"
+          },
+          {
+            "key": "txn",
+            "value": "TXN202606261650037018",
+            "type": "text"
+          },
+          {
+            "key": "auth-token",
+            "value": "17f3ab0522c9451d9558251671a21991",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://yoda.api.vayanagsp.in/gus/taxpayerapi/v1.1/returns",
+          "protocol": "https",
+          "host": [
+            "yoda",
+            "api",
+            "vayanagsp",
+            "in"
+          ],
+          "path": [
+            "gus",
+            "taxpayerapi",
+            "v1.1",
+            "returns"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Vanaya API Ping Pong",
+      "request": {
+        "method": "GET",
+        "header": []
+      },
+      "response": []
+    }
+  ]
+}

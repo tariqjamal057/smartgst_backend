@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     "tenants",
     "core",
     "accounting",
+    "vanaya",
     "gst_engine",
     "gsp_integration",
     "action_queue",
@@ -221,3 +222,22 @@ CACHES = {
         "LOCATION": BASE_DIR / "cache",
     }
 }
+
+# Vanaya (GSTN GSP) API configuration
+VANAYA_BASE_URL = env("VANAYA_BASE_URL", default="https://yoda.api.vayanagsp.in")
+VANAYA_GSTIN = env("VANAYA_GSTIN", default="33CGFPA6633Q4Z4")
+VANAYA_USERNAME = env("VANAYA_USERNAME", default="TN_NT2.21614")
+VANAYA_STATE_CODE = env("VANAYA_STATE_CODE", default="33")
+VANAYA_IP_USR = env("VANAYA_IP_USR", default="137.232.3.35")
+VANAYA_CUST_ID = env("VANAYA_CUST_ID", default="taxmatetest")
+VANAYA_DEFAULT_OTP = env("VANAYA_DEFAULT_OTP", default="575757")
+VANAYA_PRIVATE_KEY_PATH = env("VANAYA_PRIVATE_KEY_PATH", default="")
+VANAYA_PUBLIC_KEY_PATH = env("VANAYA_PUBLIC_KEY_PATH", default="")
+VANAYA_KEY_PASSWORD = env("VANAYA_KEY_PASSWORD", default="")
+VANAYA_JAVA_SOURCE_DIR = env("VANAYA_JAVA_SOURCE_DIR", default=str(BASE_DIR / "vanaya_api"))
+VANAYA_JAVA_CLASS_DIR = env(
+    "VANAYA_JAVA_CLASS_DIR", default=str(BASE_DIR / "vanaya" / "java_classes")
+)
+VANAYA_REQUEST_TIMEOUT = env.int("VANAYA_REQUEST_TIMEOUT", default=30)
+VANAYA_OTP_TEMP_TTL_SECONDS = env.int("VANAYA_OTP_TEMP_TTL_SECONDS", default=6 * 60 * 60)
+VANAYA_AUTH_TOKEN_TTL_MINUTES = env.int("VANAYA_AUTH_TOKEN_TTL_MINUTES", default=360)

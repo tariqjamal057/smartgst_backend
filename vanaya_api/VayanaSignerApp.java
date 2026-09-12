@@ -18,16 +18,19 @@ public class VayanaSignerApp {
     public static void main(String[] args) {
         if (args.length < 2) {
             System.err.println("Error: Missing arguments.");
-            System.err.println("Usage: java VayanaSignerApp \"<message>\" \"<private_key_path>\"");
+            System.err.println("Usage: java VayanaSignerApp \"<message>\" \"<private_key_path>\" [\"<password>\"]");
             System.exit(1);
         }
 
         String messageFromPython = args[0];
         String privateKeyPath = args[1];
+        // Optional 3rd argument: the private key password. Falls back to the
+        // hardcoded value only when not supplied (kept for CLI compatibility).
+        String keyPassword = args.length > 2 ? args[2] : "Taxmate@123";
 
         try {
             VayanaSignerApp app = new VayanaSignerApp();
-            PrivateKey privateKey = app.readPemPrivateKey(privateKeyPath);
+            PrivateKey privateKey = app.readPemPrivateKey(privateKeyPath, keyPassword);
             String signature = app.sign(messageFromPython, privateKey);
             
             // Output ONLY the raw signature to standard output for Python
@@ -40,7 +43,7 @@ public class VayanaSignerApp {
         }
     }
 
-    private PrivateKey readPemPrivateKey(String privateKeyPath) throws Exception {
+    private PrivateKey readPemPrivateKey(String privateKeyPath, String password) throws Exception {
         File file = new File(privateKeyPath);
         byte[] keyBytes = new byte[(int) file.length()];
         try (DataInputStream is = new DataInputStream(new FileInputStream(file))) {
@@ -60,10 +63,10 @@ public class VayanaSignerApp {
 
         // Explicitly check for ENCRYPTED format keywords to pass your password phase
         if (temp.contains("ENCRYPTED")) {
-            char[] password = "Taxmate@123".toCharArray();
+            char[] passChars = password == null ? new char[0] : password.toCharArray();
             EncryptedPrivateKeyInfo encKeyInfo = new EncryptedPrivateKeyInfo(decoded);
             SecretKeyFactory skf = SecretKeyFactory.getInstance(encKeyInfo.getAlgName());
-            java.security.Key pbeKey = skf.generateSecret(new PBEKeySpec(password));
+            java.security.Key pbeKey = skf.generateSecret(new PBEKeySpec(passChars));
             PKCS8EncodedKeySpec spec = encKeyInfo.getKeySpec(pbeKey);
             KeyFactory kf = KeyFactory.getInstance("RSA");
             return kf.generatePrivate(spec);

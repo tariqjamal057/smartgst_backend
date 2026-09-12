@@ -14,6 +14,7 @@ from rest_framework.response import Response
 
 from core.tasks import send_company_deletion_email_task, send_invitation_email_task
 from tenants.models import Tenant, TenantUser
+from vanaya.services import VanayaClient, VanayaError
 
 from . import services
 from .models import (
@@ -1402,27 +1403,103 @@ class CashFlowViewSet(viewsets.ViewSet):
         )
 
 
+def _format_vanaya_address(addr):
+    """Join GSTN ``pradr.addr``-style parts into a single display string."""
+    if not addr:
+        return ""
+    parts = [
+        addr.get("bno"),
+        addr.get("bnm"),
+        addr.get("flno"),
+        addr.get("st"),
+        addr.get("locality"),
+        addr.get("loc"),
+        addr.get("pncd"),
+    ]
+    return ", ".join(str(part).strip() for part in parts if part and str(part).strip())
+
+
+def _map_vanaya_lookup(data: dict, gstin: str) -> dict:
+    """Map a Vanaya search payload onto the response the frontend expects.
+
+    Only the fields present in the GSTN record are populated; everything else
+    is an empty string so the UI keeps its editable fields blank.
+    """
+    if not isinstance(data, dict):
+        data = {}
+    primary_addr = data.get("pradr", {}) or {}
+    additional = data.get("adadr") or []
+    branch_addr = additional[0].get("addr", {}) if additional else {}
+    company_name = data.get("lgnm") or data.get("tradeNam") or ""
+    return {
+        "success": True,
+        "company_name": company_name,
+        "name": company_name,
+        "gstin": data.get("gstin") or gstin,
+        "address": _format_vanaya_address(primary_addr.get("addr", {})),
+        "branch_address": _format_vanaya_address(branch_addr),
+        "state": (primary_addr.get("addr", {}) or {}).get("stcd") or "",
+        "country": "",
+        "email": "",
+        "website": "",
+        "contact_person": "",
+        "contact_no": "",
+        "status": (data.get("sts") or "").upper(),
+    }
+
+
+def _gst_lookup_headers(request, tenant_id):
+    """Signed-only headers for the public GST search call.
+
+    Uses all four credentials when provided, else the tenant company's GSTIN
+    (with env GSP credentials), else the env-configured defaults.
+    """
+    qp = request.query_params
+    provided = {
+        "gstin": qp.get("gstin"),
+        "username": qp.get("username"),
+        "ip_usr": qp.get("ip_usr") or qp.get("ip"),
+        "cust_id": qp.get("cust_id"),
+    }
+    if all(provided.values()):
+        return VanayaClient(**provided)
+
+    if tenant_id:
+        company = CompanySetting.objects.filter(tenant_id=tenant_id, is_active=True).first()
+        if company and company.gstin:
+            return VanayaClient(gstin=company.gstin)
+
+    return VanayaClient.from_defaults()
+
+
 class GstLookupViewSet(viewsets.ViewSet):
-    permission_classes = [permissions.IsAuthenticated]
+    """Real-time GSTIN lookup backed by the Vanaya (GSTN GSP) search API.
+
+    ``AllowAny`` so the unauthenticated company-creation page can resolve a
+    GSTIN against the env defaults; authenticated pages may pass the tenant's
+    own credentials via query params (``gstin``/``username``/``ip``/``cust_id``).
+    """
+
+    permission_classes = [permissions.AllowAny]
 
     def retrieve(self, request, pk=None):
-        gstin = pk
-        # Mock data — replace with real GST API integration later
-        mock_data = {
-            "success": True,
-            "company_name": "TAXMATE TECHNOLOGY PRIVATE LIMITED",
-            "gstin": gstin,
-            "address": "No. 45, Gandhi Street, Anna Nagar",
-            "branch_address": "Plot No. 12, SIPCOT Industrial Park",
-            "state": "Tamil Nadu",
-            "country": "India",
-            "email": "info@taxmate.in",
-            "website": "www.taxmate.in",
-            "contact_person": "Rajesh Kumar",
-            "contact_no": "9876543210",
-            "status": "ACTIVE",
-        }
-        return Response(mock_data)
+        gstin = (pk or "").strip()
+        if not gstin:
+            return Response(
+                {"detail": "GSTIN is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            client = _gst_lookup_headers(request, request.META.get("HTTP_X_TENANT_ID"))
+            body = client.search_gstin(gstin)
+        except VanayaError as exc:
+            return Response(
+                {"detail": exc.message, "error_cd": exc.error_cd},
+                status=exc.status_code,
+            )
+
+        return Response(_map_vanaya_lookup(body.get("data") or {}, gstin))
 
 
 def _parse_date(value):
