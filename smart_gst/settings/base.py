@@ -229,10 +229,14 @@ VANAYA_GSTIN = env("VANAYA_GSTIN", default="33CGFPA6633Q4Z4")
 VANAYA_USERNAME = env("VANAYA_USERNAME", default="TN_NT2.21614")
 VANAYA_STATE_CODE = env("VANAYA_STATE_CODE", default="33")
 VANAYA_IP_USR = env("VANAYA_IP_USR", default="137.232.3.35")
-VANAYA_CUST_ID = env("VANAYA_CUST_ID", default="taxmatetest")
-VANAYA_DEFAULT_OTP = env("VANAYA_DEFAULT_OTP", default="575757")
-VANAYA_PRIVATE_KEY_PATH = env("VANAYA_PRIVATE_KEY_PATH", default="")
-VANAYA_PUBLIC_KEY_PATH = env("VANAYA_PUBLIC_KEY_PATH", default="")
+VANAYA_PRIVATE_KEY_PATH = env(
+    "VANAYA_PRIVATE_KEY_PATH",
+    default=str(BASE_DIR / "vanaya" / "keys" / "taxmate.p8.pem"),
+)
+VANAYA_PUBLIC_KEY_PATH = env(
+    "VANAYA_PUBLIC_KEY_PATH",
+    default=str(BASE_DIR / "vanaya" / "keys" / "GSTN_G2B_SANDBOX_UAT_public.pem"),
+)
 VANAYA_KEY_PASSWORD = env("VANAYA_KEY_PASSWORD", default="")
 VANAYA_JAVA_SOURCE_DIR = env("VANAYA_JAVA_SOURCE_DIR", default=str(BASE_DIR / "vanaya_api"))
 VANAYA_JAVA_CLASS_DIR = env(
