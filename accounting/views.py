@@ -1850,18 +1850,19 @@ class SaleReturnSummaryViewSet(viewsets.ViewSet):
         tenant_id = _get_tenant_or_empty(request)
         if tenant_id is None:
             return Response({"returns": [], "total": 0, "count": 0})
-        qs = SaleReturn.objects.all()
-        qs = qs.filter(tenant_id=tenant_id)
+        qs = CreditNote.objects.filter(
+            tenant_id=tenant_id, note_type=CreditNote.NoteType.SALES_RETURN
+        )
         qs = _date_filter(qs, request)
 
         data = []
-        for ret in (
+        for note in (
             qs.select_related("party", "invoice").prefetch_related("items").order_by("date")
         ):
-            taxable = sum(float(i.taxable_value or 0) for i in ret.items.all())
+            taxable = sum(float(i.taxable_value or 0) for i in note.items.all())
             total_gst = sum(
                 float(i.cgst or 0) + float(i.sgst or 0) + float(i.igst or 0) + float(i.cess or 0)
-                for i in ret.items.all()
+                for i in note.items.all()
             )
             item_rows = [
                 {
@@ -1874,23 +1875,23 @@ class SaleReturnSummaryViewSet(viewsets.ViewSet):
                     "total_gst": float(i.cgst) + float(i.sgst) + float(i.igst) + float(i.cess),
                     "amount": float(i.amount),
                 }
-                for i in ret.items.all()
+                for i in note.items.all()
             ]
             data.append(
                 {
-                    "id": str(ret.uuid),
-                    "date": ret.date,
-                    "return_number": ret.return_number,
-                    "party_name": ret.party.name if ret.party else "",
-                    "gstin": ret.party.gstin if ret.party else "",
-                    "customer_address": ret.party.billing_address if ret.party else "",
-                    "invoice_number": ret.invoice.bill_id if ret.invoice else "",
-                    "total_amount": float(ret.total_amount),
+                    "id": str(note.uuid),
+                    "date": note.date,
+                    "return_number": note.voucher_number,
+                    "party_name": note.party.name if note.party else "",
+                    "gstin": note.party.gstin if note.party else "",
+                    "customer_address": note.billing_address,
+                    "invoice_number": note.invoice.bill_id if note.invoice else "",
+                    "total_amount": float(note.total_amount),
                     "taxable_value": round(taxable, 2),
                     "total_gst": round(total_gst, 2),
-                    "reason": ret.reason,
+                    "reason": note.narration,
+                    "supply_type": note.supply_type,
                     "items": item_rows,
-                    "is_settled": ret.is_settled,
                 }
             )
         total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
@@ -1905,16 +1906,17 @@ class PurchaseReturnSummaryViewSet(viewsets.ViewSet):
         tenant_id = _get_tenant_or_empty(request)
         if tenant_id is None:
             return Response({"returns": [], "total": 0, "count": 0})
-        qs = PurchaseReturn.objects.all()
-        qs = qs.filter(tenant_id=tenant_id)
+        qs = DebitNote.objects.filter(
+            tenant_id=tenant_id, note_type=DebitNote.NoteType.PURCHASE_RETURN
+        )
         qs = _date_filter(qs, request)
 
         data = []
-        for ret in qs.select_related("party", "bill").prefetch_related("items").order_by("date"):
-            taxable = sum(float(i.taxable_value or 0) for i in ret.items.all())
+        for note in qs.select_related("party", "bill").prefetch_related("items").order_by("date"):
+            taxable = sum(float(i.taxable_value or 0) for i in note.items.all())
             total_gst = sum(
                 float(i.cgst or 0) + float(i.sgst or 0) + float(i.igst or 0) + float(i.cess or 0)
-                for i in ret.items.all()
+                for i in note.items.all()
             )
             item_rows = [
                 {
@@ -1927,23 +1929,23 @@ class PurchaseReturnSummaryViewSet(viewsets.ViewSet):
                     "total_gst": float(i.cgst) + float(i.sgst) + float(i.igst) + float(i.cess),
                     "amount": float(i.amount),
                 }
-                for i in ret.items.all()
+                for i in note.items.all()
             ]
             data.append(
                 {
-                    "id": str(ret.uuid),
-                    "date": ret.date,
-                    "return_number": ret.return_number,
-                    "party_name": ret.party.name if ret.party else "",
-                    "gstin": ret.party.gstin if ret.party else "",
-                    "vendor_address": ret.party.billing_address if ret.party else "",
-                    "bill_number": ret.bill.bill_id if ret.bill else "",
-                    "total_amount": float(ret.total_amount),
+                    "id": str(note.uuid),
+                    "date": note.date,
+                    "return_number": note.voucher_number,
+                    "party_name": note.party.name if note.party else "",
+                    "gstin": note.party.gstin if note.party else "",
+                    "vendor_address": note.billing_address,
+                    "bill_number": note.bill.bill_id if note.bill else "",
+                    "total_amount": float(note.total_amount),
                     "taxable_value": round(taxable, 2),
                     "total_gst": round(total_gst, 2),
-                    "reason": ret.reason,
+                    "reason": note.narration,
+                    "supply_type": note.supply_type,
                     "items": item_rows,
-                    "is_settled": ret.is_settled,
                 }
             )
         total = qs.aggregate(t=Sum("total_amount"))["t"] or 0
