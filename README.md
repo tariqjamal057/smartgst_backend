@@ -193,6 +193,25 @@ REST endpoints: `GET/POST /gst-app/notifications/`,
 `POST /gst-app/notifications/mark-read/` (`{"ids": [...]}`),
 `POST /gst-app/notifications/mark-all-read/`.
 
+## News & Updates Seeding
+
+The News & Updates page (`/gst-app/news/`, `GET`) is 100% API-driven — the
+React app hardcodes no articles. The `NewsArticle` table holds the feed:
+
+```bash
+# Seed the predefined dataset (idempotent - existing titles are skipped):
+poetry run python manage.py seed_news
+
+# Wipe the table, then seed the predefined dataset:
+poetry run python manage.py seed_news --delete-all --seed
+
+# Generate 40 synthetic articles (all six types, 2017-2026) for demos/testing:
+poetry run python manage.py seed_news --delete-all --dynamic --count 40
+
+# Just empty the feed (page shows "No news published yet."):
+poetry run python manage.py seed_news --delete-all
+```
+
 ## Running Tests
 
 The project uses `pytest` for testing. To run the test suite:
