@@ -965,6 +965,28 @@ docs = ["furo (>=2024.8.6)", "sphinx (>=5.0)", "sphinx-notfound-page"]
 testing = ["coverage[toml] (>=5.0a4)", "pytest (>=4.6.11)", "setuptools (>=71.0.0)"]
 
 [[package]]
+name = "django-redis"
+version = "7.0.0"
+description = "Full featured redis cache backend for Django."
+optional = false
+python-versions = ">=3.10"
+files = [
+    {file = "django_redis-7.0.0-py3-none-any.whl", hash = "sha256:4b23aa6e0cd0937bb1242e9a463809e6004de3ca2150f34e986306bb6220d688"},
+    {file = "django_redis-7.0.0.tar.gz", hash = "sha256:e48491c862f4350b0747ceb1016700686fb93c4f4e0fb9c490fe6c6658ffd933"},
+]
+
+[package.dependencies]
+Django = ">=5.2,<7.0"
+redis = ">=4.0.2"
+typing_extensions = {version = ">=4.12", markers = "python_version <= \"3.12\""}
+
+[package.extras]
+hiredis = ["redis[hiredis] (>=4.0.2)"]
+lz4 = ["lz4 (>=0.15)"]
+msgpack = ["msgpack (>=0.6.0)"]
+pyzstd = ["pyzstd (>=0.15)"]
+
+[[package]]
 name = "django-tenants"
 version = "3.14.0"
 description = "Tenant support for Django using PostgreSQL schemas."
@@ -2547,4 +2569,4 @@ testing = ["coverage[toml]", "zope.event", "zope.testing"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "7994f5f9657249c097bc8391204d65eb4b79cb99b6c7d71d09096255f33c0593"
+content-hash = "7c0545a5e8871f08d4e4c0e0207221f3816a3c15e8598d7a7cb3f76c6e9da9e4"

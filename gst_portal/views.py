@@ -94,6 +94,8 @@ def _map_vanaya_lookup(data, gstin):
         "gstin": data.get("gstin") or gstin,
         "trade_name": data.get("tradeNam") or "",
         "address": _fmt_vanaya_address(addr),
+        "city": addr.get("city") or addr.get("loc") or "",
+        "pincode": addr.get("pncd") or "",
         "branch_address": _fmt_vanaya_address(branch_addr),
         "state": addr.get("stcd") or "",
         "state_code": data.get("stjCd") or "",

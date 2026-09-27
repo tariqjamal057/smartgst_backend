@@ -240,8 +240,11 @@ FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
 # Cache (file-based for development, stores OTPs temporarily)
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
-        "LOCATION": BASE_DIR / "cache",
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": env("REDIS_URL", default="redis://localhost:6379/0"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
     }
 }
 

@@ -25,6 +25,7 @@ cryptography = "^49.0.0"
 channels = "^4.3.2"
 daphne = "^4.2.3"
 channels-redis = "^4.3.0"
+django-redis = "^7.0.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^25.12.0"
