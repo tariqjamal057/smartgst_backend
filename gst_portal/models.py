@@ -90,6 +90,34 @@ class NewsArticle(BaseModel):
         return self.title
 
 
+class DashboardLink(BaseModel):
+    """A quick-access link / portal shown on the user dashboard.
+
+    ``kind`` separates the "Important Links" strip from the "Important
+    Portals" grid so one model + one seeder can drive both sections.
+    """
+
+    KIND_LINK = "link"
+    KIND_PORTAL = "portal"
+    KIND_CHOICES = [
+        (KIND_LINK, "Important link"),
+        (KIND_PORTAL, "Important portal"),
+    ]
+
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default=KIND_LINK)
+    label = models.CharField(max_length=200)
+    url = models.URLField()
+    icon = models.CharField(max_length=20, blank=True, default="🔗")
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["kind", "sort_order", "id"]
+
+    def __str__(self):
+        return f"{self.kind}: {self.label}"
+
+
 class Reminder(BaseModel):
     """A GST due-date reminder created by the user (client-site calendar)."""
 

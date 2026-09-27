@@ -96,6 +96,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
+    "gst_portal.request_tracker.RequestTrackerMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",

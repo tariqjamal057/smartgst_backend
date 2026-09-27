@@ -223,3 +223,6 @@ __pycache__
 #cache folder
 cache/
 pemiss.txt
+
+# Server log file
+request_log.txt

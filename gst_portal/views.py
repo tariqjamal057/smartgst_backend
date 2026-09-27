@@ -15,6 +15,7 @@ from vanaya.services import VanayaClient, VanayaError
 
 from .models import (
     ApiCallLog,
+    DashboardLink,
     Document,
     Firm,
     GSTClient,
@@ -25,6 +26,7 @@ from .models import (
 )
 from .serializers import (
     ApiCallLogSerializer,
+    DashboardLinkSerializer,
     DocumentSerializer,
     FirmSerializer,
     GSTClientSerializer,
@@ -178,6 +180,21 @@ class NewsViewSet(viewsets.ReadOnlyModelViewSet):
         limit = self.request.query_params.get("limit")
         if limit and limit.isdigit():
             qs = qs[: int(limit)]
+        return qs
+
+
+class DashboardLinkViewSet(viewsets.ReadOnlyModelViewSet):
+    """Important Links & Important Portals shown on the user dashboard."""
+
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = DashboardLinkSerializer
+    queryset = DashboardLink.objects.filter(is_active=True)
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        kind = self.request.query_params.get("kind")
+        if kind in ("link", "portal"):
+            qs = qs.filter(kind=kind)
         return qs
 
 

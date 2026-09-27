@@ -3,7 +3,16 @@ from rest_framework import serializers
 
 from core.models import User
 
-from .models import ApiCallLog, Document, Firm, GSTClient, NewsArticle, Notification, Reminder
+from .models import (
+    ApiCallLog,
+    DashboardLink,
+    Document,
+    Firm,
+    GSTClient,
+    NewsArticle,
+    Notification,
+    Reminder,
+)
 
 
 class UserSummarySerializer(serializers.ModelSerializer):
@@ -116,6 +125,12 @@ class NewsArticleSerializer(serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = ("created_at",)
+
+
+class DashboardLinkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DashboardLink
+        fields = ("id", "kind", "label", "url", "icon", "sort_order", "is_active")
 
 
 class ReminderSerializer(serializers.ModelSerializer):

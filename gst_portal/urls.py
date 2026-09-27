@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ApiLogsViewSet,
     ClientsViewSet,
+    DashboardLinkViewSet,
     DashboardViewSet,
     DocumentsViewSet,
     FirmsViewSet,
@@ -17,6 +18,7 @@ router = DefaultRouter()
 router.register("clients", ClientsViewSet, basename="clients")
 router.register("firms", FirmsViewSet, basename="firms")
 router.register("news", NewsViewSet, basename="news")
+router.register("dashboard-links", DashboardLinkViewSet, basename="dashboard-links")
 router.register("reminders", RemindersViewSet, basename="reminders")
 router.register("notifications", NotificationsViewSet, basename="notifications")
 router.register("returns", ReturnDataViewSet, basename="returns")

@@ -212,6 +212,20 @@ poetry run python manage.py seed_news --delete-all --dynamic --count 40
 poetry run python manage.py seed_news --delete-all
 ```
 
+## Dashboard Links & Portals Seeding
+
+The `/user` dashboard "Important Links" and "Important Portals" sections are
+API-driven from the `DashboardLink` model (`/gst-app/dashboard-links/?kind=link|portal`).
+A single seeder with exactly two modes manages both:
+
+```bash
+# Seed the static dataset (4 links + 5 govt. portals; idempotent):
+poetry run python manage.py seed_links
+
+# Generate many dynamic entries (links + portals) for demos/testing:
+poetry run python manage.py seed_links --dynamic --count 50
+```
+
 ## Running Tests
 
 The project uses `pytest` for testing. To run the test suite:
