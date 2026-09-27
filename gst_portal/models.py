@@ -38,12 +38,18 @@ class GSTClient(BaseModel):
     )
     name = models.CharField(max_length=200)
     gstin = models.CharField(max_length=15, blank=True, default="")
+    pan = models.CharField(max_length=10, blank=True, default="")
     mobile = models.CharField(max_length=20, blank=True, default="")
     email = models.EmailField(blank=True, default="")
     state = models.CharField(max_length=50, blank=True, default="")
     address = models.TextField(blank=True, default="")
     notes = models.TextField(blank=True, default="")
     reg_date = models.DateField(blank=True, null=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[("active", "Active"), ("inactive", "Inactive")],
+        default="active",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -54,6 +60,9 @@ class GSTClient(BaseModel):
             raise ValidationError({"gstin": "GSTIN must be exactly 15 characters."})
         if gstin and not gstin.isalnum():
             raise ValidationError({"gstin": "GSTIN must be alphanumeric."})
+        pan = self.pan or ""
+        if pan and len(pan) != 10:
+            raise ValidationError({"pan": "PAN must be exactly 10 characters."})
 
     def __str__(self):
         return f"{self.name} ({self.gstin})"

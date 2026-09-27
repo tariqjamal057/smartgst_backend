@@ -77,12 +77,14 @@ class GSTClientSerializer(serializers.ModelSerializer):
             "firm_name",
             "name",
             "gstin",
+            "pan",
             "mobile",
             "email",
             "state",
             "address",
             "notes",
             "reg_date",
+            "status",
             "created_at",
             "updated_at",
         )
@@ -94,6 +96,12 @@ class GSTClientSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("GSTIN must be exactly 15 characters.")
         if value and not value.isalnum():
             raise serializers.ValidationError("GSTIN must be alphanumeric.")
+        return value
+
+    def validate_pan(self, value):
+        value = (value or "").strip().upper()
+        if value and len(value) != 10:
+            raise serializers.ValidationError("PAN must be exactly 10 characters.")
         return value
 
     def validate_mobile(self, value):

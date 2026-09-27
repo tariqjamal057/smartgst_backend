@@ -151,6 +151,27 @@ class ClientsViewSet(viewsets.ModelViewSet):
             notification_type="Success",
         )
 
+    @action(detail=False, methods=["get"], url_path="stats")
+    def stats(self, request):
+        """Aggregated client counts for the dashboard cards.
+
+        Returns total / active / inactive splits plus how many were added in the
+        current calendar month. Scoped like get_queryset (owner unless staff).
+        """
+        qs = self.get_queryset()
+        month_start = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_qs = qs.filter(created_at__gte=month_start)
+        return Response(
+            {
+                "total": qs.count(),
+                "active": qs.filter(status="active").count(),
+                "inactive": qs.filter(status="inactive").count(),
+                "total_new_this_month": month_qs.count(),
+                "active_new_this_month": month_qs.filter(status="active").count(),
+                "inactive_new_this_month": month_qs.filter(status="inactive").count(),
+            }
+        )
+
 
 class FirmsViewSet(viewsets.ModelViewSet):
     permission_classes = (permissions.IsAdminUser,)
