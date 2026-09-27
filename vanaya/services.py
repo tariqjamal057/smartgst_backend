@@ -38,6 +38,20 @@ AUTHENTICATE_PATH = "/gus/taxpayerapi/v1.0/authenticate"
 SEARCH_PATH = "/gus/commonapi/v1.3/search"
 RETURNS_PATH = "/gus/taxpayerapi/v1.0/returns"
 
+#: Official GSTN G2B taxpayer-api surface (proxied under ``/gus/``).
+#: Every path here uses an authenticated session (OTP -> auth-token).
+PAYMENT_PATH = "/gus/taxpayerapi/v1.0/payment"
+LEDGER_PATH = "/gus/taxpayerapi/v1.0/ledger"
+EINV_PATH = "/gus/taxpayerapi/v1.0/einv"
+EINVC_PATH = "/gus/taxpayerapi/v1.0/einvc"
+EINVP_PATH = "/gus/taxpayerapi/v1.0/einvp"
+EWB_PATH = "/gus/taxpayerapi/v1.0/ewb"
+FO_PATH = "/gus/taxpayerapi/v1.0/fo"
+
+#: GSTN "returns" REST API (v2.2) used for per-section GSTR fetch/save/status.
+#: ``ret_period`` travels as a header; section payloads are PUT bodies.
+GSTR_V2_PATH = "/gus/taxpayerapi/v2.2/returns"
+
 #: Signed-only "public" GSTN APIs. No OTP session token is required (only the
 #: X-Asp-Auth-Token/Signature headers) and their ``data`` field carries plain
 #: base64-encoded JSON instead of the two-step AES-encrypted payload.
@@ -55,6 +69,15 @@ OVERRIDABLE_FIELDS = ("gstin", "username", "ip_usr", "cust_id")
 #: Fallback session lifetime (minutes) when the AUTHTOKEN response omits
 #: ``expiry`` (the gateway usually returns it, e.g. 360).
 DEFAULT_AUTH_TOKEN_TTL_MINUTES = 360
+
+
+def _console_log(message: str) -> None:
+    """Print a Vanaya OTP/session event to the terminal (runserver/shell)."""
+    try:
+        print(f"[Vanaya] {message}", flush=True)
+    except Exception as exp:
+        print("Error Occured ")
+        print(exp)
 
 
 class VanayaError(Exception):
@@ -147,6 +170,91 @@ class VanayaClient:
         if all(fields.values()):
             return cls(**fields)
         return cls.from_defaults()
+
+    @classmethod
+    def find_credential(cls, gstin=None, username=None):
+        """Return the matching ``VANAYA_CREDENTIALS`` entry (or None)."""
+        pool = list(getattr(settings, "VANAYA_CREDENTIALS", []) or [])
+        for cred in pool:
+            if gstin and cred.get("gstin") == gstin:
+                return cred
+            if username and cred.get("username") == username:
+                return cred
+        return None
+
+    @classmethod
+    def from_credential(cls, gstin=None, username=None) -> "VanayaClient":
+        """Build a client for a credential pool entry (by gstin or username).
+
+        Preserves that entry's ``state_code`` even when only one of the ids is
+        supplied — used by the OTP login flow when the frontend picks a
+        credential.
+        """
+        cred = cls.find_credential(gstin=gstin, username=username)
+        if cred:
+            return cls(
+                gstin=cred.get("gstin") or settings.VANAYA_GSTIN,
+                username=cred.get("username") or settings.VANAYA_USERNAME,
+                state_code=cred.get("state_code") or settings.VANAYA_STATE_CODE,
+                ip_usr=settings.VANAYA_IP_USR,
+            )
+        # Not a known credential -> fall back to explicit/exact behaviour.
+        fields = {}
+        if gstin:
+            fields["gstin"] = gstin
+        if username:
+            fields["username"] = username
+        return cls.from_data(fields)
+
+    @classmethod
+    def from_pool(cls, requested_gstin: str | None = None) -> "VanayaClient":
+        """Return an authenticated client from the credential pool.
+
+        GSTN caps concurrent sessions per user+GSP, so we keep one cached
+        session per GSTIN (``vanaya:<gstin>:auth_token`` + raw app key/dek)
+        and rotate among the sandbox GSTINs when a login is needed.
+
+        * Pass 1: reuse any still-cached session (no new OTP is sent).
+        * Pass 2: ``send_otp`` + ``authenticate`` on the next free credential
+          (login once, cache everything, keep using it).
+        """
+        pool = list(getattr(settings, "VANAYA_CREDENTIALS", []) or [])
+        if requested_gstin:
+            pool.sort(key=lambda c: (c.get("gstin") != requested_gstin))
+
+        last_error = None
+        for cred in pool:
+            gstin = cred.get("gstin") or settings.VANAYA_GSTIN
+            client = cls(
+                gstin=gstin,
+                username=cred.get("username") or settings.VANAYA_USERNAME,
+                state_code=cred.get("state_code") or settings.VANAYA_STATE_CODE,
+                ip_usr=settings.VANAYA_IP_USR,
+            )
+            if client.get_auth_token():
+                return client
+
+        # Nothing cached -> establish a fresh session on the next free credit.
+        for cred in pool:
+            gstin = cred.get("gstin") or settings.VANAYA_GSTIN
+            client = cls(
+                gstin=gstin,
+                username=cred.get("username") or settings.VANAYA_USERNAME,
+                state_code=cred.get("state_code") or settings.VANAYA_STATE_CODE,
+                ip_usr=settings.VANAYA_IP_USR,
+            )
+            try:
+                client.send_otp()
+                client.authenticate()
+                return client
+            except VanayaError as exc:
+                last_error = exc
+                continue
+
+        raise last_error or VanayaError(
+            "No usable Vanaya credential (all pool logins failed).",
+            status_code=http_status.HTTP_502_BAD_GATEWAY,
+        )
 
     @property
     def class_dir(
@@ -264,6 +372,7 @@ class VanayaClient:
         payload: dict | None = None,
         gstin: str | None = None,
         session_required: bool | None = None,
+        extra_headers: dict | None = None,
     ) -> dict:
         gstin = gstin or self.gstin
         txn_id = self.generate_txn_id()
@@ -277,10 +386,15 @@ class VanayaClient:
             if session_required
             else self._auth_headers(txn_id, action, gstin)
         )
+        headers.update(extra_headers or {})
 
         try:
             if method.lower() == "get":
                 response = requests.get(url, params=params, headers=headers, timeout=self.timeout)
+            elif method.lower() == "put":
+                response = requests.put(
+                    url, json=payload or {}, headers=headers, timeout=self.timeout
+                )
             else:
                 response = requests.post(
                     url, json=payload or {}, headers=headers, timeout=self.timeout
@@ -361,7 +475,10 @@ class VanayaClient:
             "username": self.username,
             "app_key": encoded_app_key,
         }
-        return self._request("post", AUTHENTICATE_PATH, "OTPREQUEST", payload=payload)
+        expected_otp = settings.VANAYA_DEFAULT_OTP or "(check SMS/email)"
+        _console_log(f"OTP request for {self.username} ({self.gstin}). Enter OTP: {expected_otp}")
+        body = self._request("post", AUTHENTICATE_PATH, "OTPREQUEST", payload=payload)
+        return body
 
     def authenticate(self, otp: str | None = None, username: str | None = None) -> dict:
         """Complete the auth flow (AUTHTOKEN).
@@ -410,25 +527,64 @@ class VanayaClient:
         result = dict(body)
         result["dek"] = dek
         result["app_key"] = raw_app_key
+        _console_log(
+            f"OTP verified ({otp}) for {self.username} ({self.gstin}) — "
+            "session cached, expiry="
+            f"{expiry_minutes} min, token={str(body.get('auth_token', ''))[:12]}…"
+        )
         return result
 
     # ------------------------------------------------------------------ #
     # Generic GET / POST for all other endpoints                         #
     # ------------------------------------------------------------------ #
-    def get(self, path: str, action: str, params: dict | None = None) -> dict:
+    def get(self, path: str, action: str, params: dict | None = None, **kwargs) -> dict:
         """Authenticated GET for session-protected endpoints."""
-        return self._decrypt_response(self._request("get", path, action, params=params))
+        return self._decrypt_response(
+            self._request(
+                "get",
+                path,
+                action,
+                params=params,
+                extra_headers=kwargs.get("extra_headers") if "extra_headers" in kwargs else None,
+            )
+        )
 
-    def get_public(self, path: str, action: str, params: dict | None = None) -> dict:
+    def get_public(self, path: str, action: str, params: dict | None = None, **kwargs) -> dict:
         """Signed-only GET for the public GSP endpoints (e.g. search)."""
         return self._decrypt_response(
-            self._request("get", path, action, params=params),
+            self._request(
+                "get",
+                path,
+                action,
+                params=params,
+                extra_headers=kwargs.get("extra_headers") if "extra_headers" in kwargs else None,
+            ),
             public=True,
         )
 
-    def post(self, path: str, action: str, payload: dict | None = None) -> dict:
+    def post(self, path: str, action: str, payload: dict | None = None, **kwargs) -> dict:
         """Authenticated POST (non-auth actions go straight through)."""
-        return self._decrypt_response(self._request("post", path, action, payload=payload or {}))
+        return self._decrypt_response(
+            self._request(
+                "post",
+                path,
+                action,
+                payload=payload or {},
+                extra_headers=kwargs.get("extra_headers") if "extra_headers" in kwargs else None,
+            )
+        )
+
+    def put(self, path: str, action: str, payload: dict | None = None, **kwargs) -> dict:
+        """Authenticated PUT (used by the GSTR v2.2 save APIs)."""
+        return self._decrypt_response(
+            self._request(
+                "put",
+                path,
+                action,
+                payload=payload or {},
+                extra_headers=kwargs.get("extra_headers") if "extra_headers" in kwargs else None,
+            )
+        )
 
     # ------------------------------------------------------------------ #
     # Postman mirror helpers                                             #
@@ -450,6 +606,145 @@ class VanayaClient:
         params.setdefault("action", action)
         params.setdefault("gstin", self.gstin)
         return self.get(RETURNS_PATH, params["action"], params=params)
+
+    # ------------------------------------------------------------------ #
+    # Official GSTN G2B API mirrors                                      #
+    # ------------------------------------------------------------------ #
+    # Generic accessors used by the G2B area endpoints. ``post_*`` payloads
+    # are sent as the request body so the gateway can forward them verbatim.
+    def returns_get(self, action: str, params: dict | None = None) -> dict:
+        params = dict(params or {})
+        params.setdefault("action", action)
+        params.setdefault("gstin", self.gstin)
+        return self.get(RETURNS_PATH, params["action"], params=params)
+
+    def returns_post(self, action: str, payload: dict | None = None) -> dict:
+        payload = dict(payload or {})
+        payload.setdefault("action", action)
+        payload.setdefault("gstin", self.gstin)
+        return self.post(RETURNS_PATH, payload["action"], payload=payload)
+
+    def gstr_get(
+        self, return_type: str, ret_period: str | None = None, gstin: str | None = None, **params
+    ) -> dict:
+        """Section GET of a GSTR return (``/taxpayerapi/v2.2/returns/<type>``).
+
+        ``params`` are the GSTN section query values (e.g. ``ctin`` for b2b or
+        ``doc_id`` for doc-wise pulls). ``ret_period`` is sent as a header.
+        """
+        headers = {}
+        if ret_period:
+            headers["ret_period"] = ret_period
+        params = dict(params)
+        params.setdefault("gstin", gstin or self.gstin)
+        return self.get(
+            f"{GSTR_V2_PATH}/{return_type}",
+            f"GSTR{return_type}" if not return_type.startswith("gstr") else return_type.upper(),
+            params=params,
+            extra_headers=headers,
+        )
+
+    def gstr_save(
+        self,
+        return_type: str,
+        ret_period: str,
+        payload: dict,
+        gstin: str | None = None,
+    ) -> dict:
+        """Section SAVE of a GSTR return (``PUT /taxpayerapi/v2.2/returns/<type>``).
+
+        ``payload`` is the GSTN section body, e.g. ``{"ctin":..., "inv":[...]}``.
+        Responds with a ``reference_id`` that must be kept for later status/file.
+        """
+        return self.put(
+            f"{GSTR_V2_PATH}/{return_type}",
+            f"GSTR{return_type}" if not return_type.startswith("gstr") else return_type.upper(),
+            payload=payload,
+            extra_headers={
+                "ret_period": ret_period,
+                "gstin": gstin or self.gstin,
+            },
+        )
+
+    def payment(self, action: str, **params) -> dict:
+        """Challan / payment APIs (``/taxpayerapi/v1.0/payment``).
+
+        Actions include CHALLAN (generate PMT-06), STATUS, ADJUST, GETCASH,
+        LIAB_IMPORT, LIAB_SYSTEM.
+        """
+        params = dict(params)
+        params.setdefault("action", action)
+        params.setdefault("gstin", self.gstin)
+        return self.get(PAYMENT_PATH, params["action"], params=params)
+
+    def ledger(self, action: str, **params) -> dict:
+        """Cash / ITC ledger APIs (``/taxpayerapi/v1.0/ledger``).
+
+        Actions include GETCASH (cash ledger), GETITC (ITC ledger); pass
+        from-date/to-date. Optional ``txno`` returns a single transaction.
+        """
+        params = dict(params)
+        params.setdefault("action", action)
+        params.setdefault("gstin", self.gstin)
+        return self.get(LEDGER_PATH, params["action"], params=params)
+
+    def generate_einvoice(self, payload: dict) -> dict:
+        """Generate e-invoice / IRN (``/taxpayerapi/v1.0/einv``)."""
+        return self.post(EINV_PATH, "GENERATE", payload=payload)
+
+    def cancel_einvoice(self, payload: dict) -> dict:
+        """Cancel e-invoice (``/taxpayerapi/v1.0/einvc``)."""
+        return self.post(EINVC_PATH, "CANCEL", payload=payload)
+
+    def get_einvoice(self, **params) -> dict:
+        """Fetch e-invoice payload by IRN/IrNo (``/taxpayerapi/v1.0/einvp``)."""
+        params = dict(params)
+        params.setdefault("action", "IRP")
+        params.setdefault("gstin", self.gstin)
+        return self.get(EINVP_PATH, params["action"], params=params)
+
+    def get_eway_bill(self, **params) -> dict:
+        """Fetch E-way bill (``/taxpayerapi/v1.0/ewb``)."""
+        params = dict(params)
+        params.setdefault("gstin", self.gstin)
+        return self.get(EWB_PATH, params.get("action", "EWB"), params=params)
+
+    def get_fo(self, action: str, **params) -> dict:
+        """Filing-operations APIs (``/taxpayerapi/v1.0/fo``).
+
+        Actions include GetLatestReturns (latest filed return per type),
+        GetFilingMatrix and GetGivenMetrics.
+        """
+        params = dict(params)
+        params.setdefault("action", action)
+        params.setdefault("gstin", self.gstin)
+        return self.get(FO_PATH, params["action"], params=params)
+
+    def get_profile(self) -> dict:
+        """Taxpayer profile (POST ``PROFILE`` on the authenticate endpoint)."""
+        return self._decrypt_response(
+            self._request(
+                "post",
+                AUTHENTICATE_PATH,
+                "PROFILE",
+                payload={"action": "PROFILE", "gstin": self.gstin},
+                session_required=True,
+            )
+        )
+
+    def logout(self) -> dict:
+        """End the Vanaya session (POST ``LOGOUT``) and purge cached state."""
+        body = self._decrypt_response(
+            self._request(
+                "post",
+                AUTHENTICATE_PATH,
+                "LOGOUT",
+                payload={"action": "LOGOUT", "gstin": self.gstin},
+                session_required=True,
+            )
+        )
+        self.clear_session()
+        return body
 
     def clear_session(self):
         for suffix in (

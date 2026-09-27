@@ -55,6 +55,10 @@ class User(BaseModel, AbstractBaseUser, PermissionsMixin):
     city = models.CharField(max_length=100, blank=True)
     state = models.CharField(max_length=100, blank=True)
     pincode = models.CharField(max_length=10, blank=True)
+    mobile = models.CharField(max_length=15, blank=True)
+    phone = models.CharField(max_length=15, blank=True)
+    company = models.CharField(max_length=200, blank=True)
+    gstin = models.CharField(max_length=15, blank=True)
 
     groups = models.ManyToManyField(
         "auth.Group",
@@ -124,3 +128,20 @@ class LoginActivity(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {'ok' if self.success else 'fail'} @ {self.created_at}"
+
+
+class NotificationPreference(BaseModel):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_prefs"
+    )
+    email = models.BooleanField(default=True)
+    sms = models.BooleanField(default=False)
+    whatsapp = models.BooleanField(default=True)
+    due_reminders = models.BooleanField(default=True)
+    voucher_alerts = models.BooleanField(default=True)
+    report_alerts = models.BooleanField(default=False)
+    login_alerts = models.BooleanField(default=True)
+    payment_alerts = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.user.email} preferences"

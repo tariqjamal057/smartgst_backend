@@ -5,6 +5,8 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     CustomTokenObtainPairView,
     LogoutView,
+    NotificationPreferenceView,
+    ProfileView,
     RequestPasswordResetView,
     SecurityViewSet,
     SendOtpView,
@@ -24,6 +26,12 @@ urlpatterns = [
     path("login/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("logout/", LogoutView.as_view(), name="logout"),
+    path("profile/", ProfileView.as_view(), name="profile"),
+    path(
+        "notification-preferences/",
+        NotificationPreferenceView.as_view(),
+        name="notification-preferences",
+    ),
     path(
         "request-reset-password/",
         RequestPasswordResetView.as_view(),

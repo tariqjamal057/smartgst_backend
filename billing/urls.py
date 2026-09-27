@@ -1,11 +1,13 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from .views import PaymentViewSet, PlanViewSet, SubscriptionViewSet
+
 router = DefaultRouter()
-# Register viewsets for billing app here, e.g.:
-# router.register(r'subscriptions', SubscriptionViewSet)
+router.register(r"plans", PlanViewSet, basename="plans")
+router.register(r"subscription", SubscriptionViewSet, basename="subscription")
+router.register(r"payments", PaymentViewSet, basename="payments")
 
 urlpatterns = [
     path("", include(router.urls)),
-    # Add other billing app specific URLs here
 ]

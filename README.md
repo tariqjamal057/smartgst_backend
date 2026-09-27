@@ -103,13 +103,34 @@ Run the initial database migrations.
 poetry run python manage.py migrate
 ```
 
-### 6. Run the Development Server
+### 6. Seed Subscription Plans
+
+Manage subscription plans using the interactive plan manager.
+
+```bash
+poetry run python manage.py manage_plans
+```
+
+Options:
+- `1` — Add predefined plans (Starter / Professional / Enterprise).
+- `2` — Add dynamic plans: enter a count, then provide details for each plan one by one (name, price, period, clients, users, support).
+- `3` — List all existing plans.
+- `4` — Delete a plan (by ID, with confirmation). Plans that have linked subscriptions or payments cannot be deleted.
+
+Supported plan periods: `year` (Year), `month` (Month), and `custom` (Custom Days, between 1 and 30 days).
+
+Alternatively, seed only the predefined plans (non-interactive):
+```bash
+poetry run python manage.py seed_plans
+```
+
+### 7. Run the Development Server
 Start the Django development server.
 ```bash
 poetry run python manage.py runserver
 ```
 
-### 7. Run Celery Workers
+### 8. Run Celery Workers
 In a separate terminal, start the Celery worker to process background tasks.
 ```bash
 poetry run celery -A smart_gst worker -l info

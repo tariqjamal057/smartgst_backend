@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import json as _json
 from datetime import timedelta
 from pathlib import Path
 
@@ -70,6 +71,7 @@ INSTALLED_APPS = [
     "core",
     "accounting",
     "vanaya",
+    "gst_portal",
     "gst_engine",
     "gsp_integration",
     "action_queue",
@@ -203,6 +205,11 @@ CELERY_TIMEZONE = "UTC"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
 
+# prefork is broken on Windows (spawned children crash while deserializing
+# messages with ``ValueError: not enough values to unpack (expected 3, got 0)``).
+# Use the solo pool so ``celery -A smart_gst worker -l info`` just works.
+CELERY_WORKER_POOL = env("CELERY_WORKER_POOL", default="solo")
+
 # Email Configuration
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = env("EMAIL_HOST", default="smtp.mailtrap.io")
@@ -247,3 +254,29 @@ VANAYA_JAVA_CLASS_DIR = env(
 VANAYA_REQUEST_TIMEOUT = env.int("VANAYA_REQUEST_TIMEOUT", default=30)
 VANAYA_OTP_TEMP_TTL_SECONDS = env.int("VANAYA_OTP_TEMP_TTL_SECONDS", default=6 * 60 * 60)
 VANAYA_AUTH_TOKEN_TTL_MINUTES = env.int("VANAYA_AUTH_TOKEN_TTL_MINUTES", default=360)
+
+#: Sandbox GSTIN pool issued by GSTN for API testing. Sessions are cached per
+#: GSTIN and rotated automatically (GSTN caps live sessions per user+GSP).
+#: Each entry: gstin, username, state_code (first 2 digits).
+_VANAYA_CREDENTIALS_DEFAULT = (
+    '[{"gstin": "27CGFPA6633Q2ZZ", "username": "MH_NT2.21680", "state_code": "27"},'
+    '{"gstin": "27CGFPA6633Q4ZX", "username": "MH_NT2.21699", "state_code": "27"},'
+    '{"gstin": "33CGFPA6633Q2Z6", "username": "TN_NT2.21595", "state_code": "33"},'
+    '{"gstin": "33CGFPA6633Q4Z4", "username": "TN_NT2.21614", "state_code": "33"}]'
+)
+
+
+def _parse_credentials(value, default):
+    if isinstance(value, list) and all(isinstance(item, dict) for item in value):
+        return value
+    try:
+        parsed = _json.loads(str(value))
+    except Exception:
+        return default
+    return parsed if isinstance(parsed, list) else default
+
+
+VANAYA_CREDENTIALS = _parse_credentials(
+    env("VANAYA_CREDENTIALS", default=_VANAYA_CREDENTIALS_DEFAULT),
+    _json.loads(_VANAYA_CREDENTIALS_DEFAULT),
+)

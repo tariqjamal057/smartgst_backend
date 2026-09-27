@@ -14,8 +14,12 @@ from rest_framework.viewsets import ViewSet
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import LoginActivity, User, UserSession
-from .serializers import UserRegistrationSerializer, UserSerializer
+from .models import LoginActivity, NotificationPreference, User, UserSession
+from .serializers import (
+    NotificationPreferenceSerializer,
+    UserRegistrationSerializer,
+    UserSerializer,
+)
 
 
 def send_password_reset_email(user, request):
@@ -172,20 +176,33 @@ class SendOtpView(generics.GenericAPIView):
             )
         # Store OTP in cache for 10 minutes
         cache.set(f"otp_{email}", otp, timeout=600)
+        print(f"[Account OTP] {email} -> {otp} (valid 10 min)", flush=True)
         subject = "Your SmartGST OTP Code"
         message = (
             f"Your OTP for SmartGST registration is: {otp}\n\nThis OTP is valid for 10 minutes."
         )
+        from core.tasks import send_otp_email_task
+
+        sent = False
+        # Dispatch asynchronously via Celery so the request returns instantly
+        # while the user fills in the rest of the sign-up form. If the broker
+        # is down, fall back to a synchronous send so dev flow still works.
         try:
-            send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
-            return Response({"success": True, "message": "OTP sent successfully."})
-        except Exception as e:
-            # If email fails, still return success so dev flow isn't blocked
-            # In production, remove this fallback
-            return Response(
-                {"success": True, "message": "OTP stored (email send failed: " + str(e) + ")"},
-                status=status.HTTP_200_OK,
-            )
+            send_otp_email_task.delay(subject, message, email, settings.DEFAULT_FROM_EMAIL)
+            sent = True
+        except Exception:
+            # Celery/broker unavailable is expected in dev; sync fallback below.
+            sent = False
+        if not sent:
+            try:
+                send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
+                sent = True
+            except Exception as e:
+                return Response(
+                    {"success": True, "message": "OTP stored (email send failed: " + str(e) + ")"},
+                    status=status.HTTP_200_OK,
+                )
+        return Response({"success": True, "message": "OTP sent successfully."})
 
 
 class UserRegistrationView(generics.CreateAPIView):
@@ -243,6 +260,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                 user=user, ip_address=ip, device=device, user_agent=ua, success=True
             )
             token = response.data.get("access", "")
+            response.data["user"] = UserSerializer(user).data
             session = UserSession.objects.create(
                 user=user,
                 device=device,
@@ -271,6 +289,23 @@ class LogoutView(generics.GenericAPIView):
             return Response(status=status.HTTP_205_RESET_CONTENT)
         except Exception:
             return Response(status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProfileView(generics.RetrieveUpdateAPIView):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = UserSerializer
+
+    def get_object(self):
+        return self.request.user
+
+
+class NotificationPreferenceView(generics.RetrieveUpdateAPIView):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = NotificationPreferenceSerializer
+
+    def get_object(self):
+        obj, _ = NotificationPreference.objects.get_or_create(user=self.request.user)
+        return obj
 
 
 class RequestPasswordResetView(generics.GenericAPIView):

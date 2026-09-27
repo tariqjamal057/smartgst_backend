@@ -20,5 +20,6 @@ urlpatterns = [
     path("billing/", include("billing.urls")),
     path("audit_logs/", include("audit_logs.urls")),
     path("tenants/", include("tenants.urls")),
+    path("gst-app/", include("gst_portal.urls")),
     path("", include(router.urls)),
 ]

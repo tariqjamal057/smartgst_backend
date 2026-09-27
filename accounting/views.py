@@ -468,6 +468,21 @@ class ConnectCAViewSet(viewsets.ViewSet):
             user.set_unusable_password()
             user.save()
 
+        from billing.services import user_limit
+
+        limit = user_limit(request.user)
+        if limit is not None:
+            used = TenantUser.objects.filter(tenant_id=tenant.id, is_active=True).count()
+            if used >= limit:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            f"User limit reached ({used}/{limit}). "
+                            "Upgrade your plan to add more team members."
+                        )
+                    }
+                )
+
         obj, obj_created = TenantUser.objects.get_or_create(
             tenant=tenant,
             user=user,
