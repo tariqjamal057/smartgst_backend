@@ -17,7 +17,8 @@ from datetime import date, timedelta
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
-from gst_portal.models import Firm, GSTClient, Notification, Reminder
+from gst_portal.models import Firm, GSTClient, Reminder
+from gst_portal.services import create_notification
 
 User = get_user_model()
 
@@ -116,13 +117,11 @@ class Command(BaseCommand):
             title="GSTR-3B filing due (August)",
             defaults={"date": date.today() + timedelta(days=19), "is_done": False},
         )
-        Notification.objects.get_or_create(
+        create_notification(
             user=user,
             title="Welcome to SmartGST",
-            defaults={
-                "message": "Your portal is now backed by the live Django backend.",
-                "is_read": False,
-            },
+            message="Your portal is now backed by the live Django backend.",
+            notification_type="Info",
         )
 
         from gst_portal.models import ApiCallLog

@@ -18,4 +18,16 @@ environ.Env.read_env(BASE_DIR / ".env")
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "smart_gst.settings")
 
-application = get_asgi_application()
+django_asgi_app = get_asgi_application()
+
+from channels.auth import AuthMiddlewareStack  # noqa: E402
+from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
+
+import gst_portal.routing  # noqa: E402
+
+application = ProtocolTypeRouter(
+    {
+        "http": django_asgi_app,
+        "websocket": AuthMiddlewareStack(URLRouter(gst_portal.routing.websocket_urlpatterns)),
+    }
+)

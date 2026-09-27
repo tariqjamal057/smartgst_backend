@@ -125,7 +125,9 @@ poetry run python manage.py seed_plans
 ```
 
 ### 7. Run the Development Server
-Start the Django development server.
+Start the Django development server. The server runs under ASGI (Daphne, via the
+`channels` app), so it serves both the HTTP API and the WebSocket endpoint
+(`ws://localhost:8000/ws/notifications/`).
 ```bash
 poetry run python manage.py runserver
 ```
@@ -135,6 +137,61 @@ In a separate terminal, start the Celery worker to process background tasks.
 ```bash
 poetry run celery -A smart_gst worker -l info
 ```
+
+## Notifications & WebSocket
+
+The portal supports real-time in-app notifications pushed over Redis
+(`CHANNEL_LAYERS` reuses `REDIS_URL`). A logged-in user's browser connects to
+`/ws/notifications/?token=<access_token>` and receives a `notification.new`
+payload whenever a notification is created for them.
+
+Creating a notification also broadcasts the push (works from Django views,
+management commands, and future Celery tasks alike):
+
+```python
+from gst_portal.services import create_notification
+
+create_notification(user=user, title="Title", message="Body", notification_type="Info")
+```
+
+Test helpers:
+
+```bash
+# Seed a batch of sample notifications across all types (Live push as it runs):
+poetry run python manage.py seed_notifications --user user@example.com --count 6
+
+# Send a single live notification:
+poetry run python manage.py notify_test user@example.com "Your title" "Your message" "Warning"
+```
+
+`notification_type` values the frontend styles: `Info`, `Success`, `Warning`,
+`Deadline`, `Upload`. Example `notify_test` commands, one per type, with a
+custom message (a live push hits the user's browser instantly while the
+dashboard is open):
+
+```bash
+# Success - filing completed
+poetry run python manage.py notify_test user@example.com "GSTR-1A filed successfully" "Your GSTR-1A for FEB 2026 has been submitted to GSTN." "Success"
+
+# Deadline - filing reminder
+poetry run python manage.py notify_test user@example.com "Filing deadline approaching" "GSTR-1 is due in 2 days - file before 11th to avoid late fees." "Deadline"
+
+# Upload - document/statement ready
+poetry run python manage.py notify_test user@example.com "Client statement uploaded" "Prepared GSTR-2B statement for M/s ABC Traders is ready to download." "Upload"
+
+# Warning - reconciliation alert
+poetry run python manage.py notify_test user@example.com "ITC mismatch warning" "ITC mismatch found in GSTR-2A for M/s XYZ Enterprises - reconcile soon." "Warning"
+
+# Info - general announcement
+poetry run python manage.py notify_test user@example.com "New update available" "SmartGST 2.3 released - see the What's New section." "Info"
+```
+
+If a browser was not connected at push time it picks the notification up on the
+next page load (or within ~20s, since the dashboard also polls at a low rate).
+
+REST endpoints: `GET/POST /gst-app/notifications/`,
+`POST /gst-app/notifications/mark-read/` (`{"ids": [...]}`),
+`POST /gst-app/notifications/mark-all-read/`.
 
 ## Running Tests
 

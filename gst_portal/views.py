@@ -32,6 +32,7 @@ from .serializers import (
     NotificationSerializer,
     ReminderSerializer,
 )
+from .services import create_notification
 
 # --------------------------------------------------------------------------- #
 # Shared helpers
@@ -138,6 +139,15 @@ class ClientsViewSet(viewsets.ModelViewSet):
                     }
                 )
         serializer.save(owner=self.request.user)
+        create_notification(
+            user=self.request.user,
+            title="Client added",
+            message=(
+                f"{serializer.instance.name} ({serializer.instance.gstin}) "
+                "was added to your client list."
+            ),
+            notification_type="Success",
+        )
 
 
 class FirmsViewSet(viewsets.ModelViewSet):
@@ -262,6 +272,21 @@ class ReturnDataViewSet(viewsets.ViewSet):
                 defaults={"payload": rows if isinstance(rows, list) else []},
             )
         return Response({"success": True, "saved_sections": list(sections.keys())})
+
+    @action(detail=False, methods=["post"], url_path="file")
+    def file(self, request):
+        """Mark a return's grid data as filed (simulated in sandbox)."""
+        data = request.data or {}
+        sections = data.get("sections") or {}
+        if not isinstance(sections, dict):
+            sections = {}
+        create_notification(
+            user=request.user,
+            title=f"GSTR-1 {data.get('period') or ''} Filed Successfully",
+            message="Your return data has been reconciled and filed successfully.",
+            notification_type="Success",
+        )
+        return Response({"success": True, "filed": True, "saved_sections": list(sections.keys())})
 
     @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request):

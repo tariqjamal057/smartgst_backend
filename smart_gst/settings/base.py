@@ -67,6 +67,8 @@ SIMPLE_JWT = {
 }
 
 INSTALLED_APPS = [
+    "daphne",
+    "channels",
     "tenants",
     "core",
     "accounting",
@@ -122,6 +124,8 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "smart_gst.wsgi.application"
+
+ASGI_APPLICATION = "smart_gst.asgi.application"
 
 
 # Database
@@ -204,6 +208,16 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
+
+# Channels / WebSocket configuration (reuses the existing Redis server)
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [env("REDIS_URL", default="redis://localhost:6379/0")],
+        },
+    },
+}
 
 # prefork is broken on Windows (spawned children crash while deserializing
 # messages with ``ValueError: not enough values to unpack (expected 3, got 0)``).
