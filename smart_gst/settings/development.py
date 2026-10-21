@@ -11,6 +11,8 @@ ALLOWED_HOSTS = [
     "127.0.0.1",
     "accounts.taxoratax.com",
     "www.accounts.taxoratax.com",
+    "gst.taxoratax.com",
+    "www.gst.taxoratax.com",
 ]
 
 # Trust the X-Forwarded-Proto header from the reverse proxy (HTTPS behind Nginx)
@@ -22,6 +24,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://taxora-eight.vercel.app",
     "https://accounts.taxoratax.com",
     "https://www.accounts.taxoratax.com",
+    "https://gst.taxoratax.com",
+    "https://www.gst.taxoratax.com",
 ]
 
 # CORS configuration for development
@@ -34,6 +38,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://taxora-eight.vercel.app",
     "https://accounts.taxoratax.com",
     "https://www.accounts.taxoratax.com",
+    "https://gst.taxoratax.com",
+    "https://www.gst.taxoratax.com",
     "https://api.taxoratax.com",
 ]
 CORS_ALLOWED_ORIGIN_REGEXES = [
