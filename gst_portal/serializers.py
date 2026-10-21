@@ -12,6 +12,7 @@ from .models import (
     NewsArticle,
     Notification,
     Reminder,
+    ReturnFiling,
 )
 
 
@@ -85,6 +86,21 @@ class GSTClientSerializer(serializers.ModelSerializer):
             "notes",
             "reg_date",
             "status",
+            "trade_name",
+            "place",
+            "pin",
+            "phone",
+            "business_type",
+            "taxpayer_type",
+            "upload_type",
+            "tan",
+            "cin",
+            "file_no",
+            "responsible_person",
+            "designation",
+            "alternate_mobile",
+            "gst_user_id",
+            "lut_number",
             "created_at",
             "updated_at",
         )
@@ -153,6 +169,24 @@ class NotificationSerializer(serializers.ModelSerializer):
         model = Notification
         fields = ("id", "title", "message", "notification_type", "is_read", "created_at")
         read_only_fields = ("created_at",)
+
+
+class ReturnFilingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ReturnFiling
+        fields = (
+            "id",
+            "client",
+            "gstin",
+            "return_type",
+            "period",
+            "fy",
+            "status",
+            "arn",
+            "filed_at",
+            "synced_at",
+            "source",
+        )
 
 
 class DocumentSerializer(serializers.ModelSerializer):

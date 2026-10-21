@@ -48,9 +48,23 @@ EINVP_PATH = "/gus/taxpayerapi/v1.0/einvp"
 EWB_PATH = "/gus/taxpayerapi/v1.0/ewb"
 FO_PATH = "/gus/taxpayerapi/v1.0/fo"
 
-#: GSTN "returns" REST API (v2.2) used for per-section GSTR fetch/save/status.
-#: ``ret_period`` travels as a header; section payloads are PUT bodies.
+#: GSTN "returns" REST API used for per-section GSTR fetch/save/status.
+#: The Vayana GSP sandbox gateway only proxies v1.x and v2.2 paths (probed:
+#: v5.0 GSTR-1 / v7.1 GSTR-3B URL forms 404 on `yoda.api.vayanagsp.in`, and
+#: putting ``ret_period`` in the query or ``section`` in a header makes the
+#: gateway itself return 400). So we stay on v2.2 here with ``gstin`` in the
+#: query (plus any gateway-whitelisted filter params) and ``ret_period`` as a
+#: header. The map below documents the equivalent *production* GSTN versions
+#: from the developer portal for the day the gateway routes them.
 GSTR_V2_PATH = "/gus/taxpayerapi/v2.2/returns"
+#: GSTN development-portal versions per return type (informational only —
+#: the current sandbox gateway does not route these paths).
+GSTR_PATH_VERSIONS = {
+    "gstr1": "v5.0",
+    "gstr1a": "v5.0",
+    "gstr3b": "v7.1",
+    "itc04": "v1.2",
+}
 
 #: Signed-only "public" GSTN APIs. No OTP session token is required (only the
 #: X-Asp-Auth-Token/Signature headers) and their ``data`` field carries plain
@@ -90,6 +104,14 @@ class VanayaError(Exception):
         super().__init__(message)
 
 
+class VanayaSessionRequired(VanayaError):
+    """Raised when a live/data read needs an authenticated GSTN session first.
+
+    Never triggers a login — callers respond with a clean "disconnected"
+    empty state instead of hammering the gateway (or sending an OTP).
+    """
+
+
 def _now_ist() -> datetime:
     return datetime.now(timezone.utc) + IST_OFFSET
 
@@ -115,6 +137,8 @@ class VanayaClient:
         java_source_dir=None,
         java_class_dir=None,
         timeout=None,
+        client_id=None,
+        client_secret=None,
     ):
         # Explicit-only approach (from_data) always provides all four; defaults
         # kick in for anything missing, so callers may override selectively too.
@@ -123,6 +147,13 @@ class VanayaClient:
         self.cust_id = cust_id or settings.VANAYA_CUST_ID
         self.state_code = state_code or settings.VANAYA_STATE_CODE
         self.ip_usr = ip_usr or settings.VANAYA_IP_USR
+        # Optional Vayana GSP client id/secret (production only). When empty
+        # the auth token carries an empty client-id slot, exactly as the
+        # sandbox gateway expects.
+        self.client_id = client_id if client_id is not None else settings.VANAYA_CLIENT_ID
+        self.client_secret = (
+            client_secret if client_secret is not None else settings.VANAYA_CLIENT_SECRET
+        )
         self.base_url = (base_url or settings.VANAYA_BASE_URL).rstrip("/")
         self.private_key_path = private_key_path or settings.VANAYA_PRIVATE_KEY_PATH
         self.public_key_path = public_key_path or settings.VANAYA_PUBLIC_KEY_PATH
@@ -211,50 +242,51 @@ class VanayaClient:
         """Return an authenticated client from the credential pool.
 
         GSTN caps concurrent sessions per user+GSP, so we keep one cached
-        session per GSTIN (``vanaya:<gstin>:auth_token`` + raw app key/dek)
-        and rotate among the sandbox GSTINs when a login is needed.
+        session per GSTIN (``vanaya:<gstin>:auth_token`` + raw app key/dek).
 
-        * Pass 1: reuse any still-cached session (no new OTP is sent).
-        * Pass 2: ``send_otp`` + ``authenticate`` on the next free credential
-          (login once, cache everything, keep using it).
+        * If ``requested_gstin`` is a pool credential, require *its own* cached
+          session (never borrow another credential's session for it — that both
+          sends the wrong GSTIN upstream and 404s).
+        * If it is an unknown/arbitrary GSTIN, reuse any cached pool session.
+        * Never auto-login during a read (no OTP fires). The interactive OTP
+          flow uses ``from_credential``/``send_otp`` instead; without a cached
+          session we raise ``VanayaSessionRequired`` so callers can respond
+          "disconnected".
         """
         pool = list(getattr(settings, "VANAYA_CREDENTIALS", []) or [])
-        if requested_gstin:
-            pool.sort(key=lambda c: (c.get("gstin") != requested_gstin))
 
-        last_error = None
-        for cred in pool:
-            gstin = cred.get("gstin") or settings.VANAYA_GSTIN
-            client = cls(
-                gstin=gstin,
+        def _client_for(cred):
+            return cls(
+                gstin=cred.get("gstin") or settings.VANAYA_GSTIN,
                 username=cred.get("username") or settings.VANAYA_USERNAME,
                 state_code=cred.get("state_code") or settings.VANAYA_STATE_CODE,
                 ip_usr=settings.VANAYA_IP_USR,
             )
+
+        def _no_session(gstin):
+            raise VanayaSessionRequired(
+                f"No authenticated GSTN session for {gstin}. "
+                "Connect via the GSTN Session bar (Send OTP + Verify) first."
+            )
+
+        if requested_gstin:
+            match = next((c for c in pool if c.get("gstin") == requested_gstin), None)
+            if match is not None:
+                client = _client_for(match)
+                if client.get_auth_token():
+                    return client
+                _no_session(requested_gstin)
+
+        # Unknown/arbitrary GSTIN -> reuse any still-cached pool session.
+        pool.sort(key=lambda c: (c.get("gstin") != requested_gstin))
+        for cred in pool:
+            client = _client_for(cred)
             if client.get_auth_token():
                 return client
 
-        # Nothing cached -> establish a fresh session on the next free credit.
-        for cred in pool:
-            gstin = cred.get("gstin") or settings.VANAYA_GSTIN
-            client = cls(
-                gstin=gstin,
-                username=cred.get("username") or settings.VANAYA_USERNAME,
-                state_code=cred.get("state_code") or settings.VANAYA_STATE_CODE,
-                ip_usr=settings.VANAYA_IP_USR,
-            )
-            try:
-                client.send_otp()
-                client.authenticate()
-                return client
-            except VanayaError as exc:
-                last_error = exc
-                continue
-
-        raise last_error or VanayaError(
-            "No usable Vanaya credential (all pool logins failed).",
-            status_code=http_status.HTTP_502_BAD_GATEWAY,
-        )
+        # Nothing cached -> never auto-login here (OTP would be sent for a
+        # mere read); let the caller report "disconnected".
+        _no_session(requested_gstin or settings.VANAYA_GSTIN)
 
     @property
     def class_dir(
@@ -287,11 +319,13 @@ class VanayaClient:
 
     def _auth_token_string(self, txn_id: str, action: str, gstin: str) -> str:
         timestamp = _fmt_timestamp(_now_ist())
-        return f"v2.0:{self.cust_id}::{txn_id}:{timestamp}:{gstin}:{action}"
+        # v2.0:<cust_id>:<client_id>:<txn>:<timestamp>:<gstin>:<action>. The
+        # client-id slot is empty unless VANAYA_CLIENT_ID is configured (prod).
+        return f"v2.0:{self.cust_id}:{self.client_id}:{txn_id}:{timestamp}:{gstin}:{action}"
 
     def _auth_headers(self, txn_id: str, action: str, gstin: str) -> dict:
         auth_token_string = self._auth_token_string(txn_id, action, gstin)
-        return {
+        headers = {
             "cust_id": self.cust_id,
             "X-Asp-Auth-Token": auth_token_string,
             "X-Asp-Auth-Signature": crypto.sign_sha256(
@@ -304,6 +338,13 @@ class VanayaClient:
             "ip-usr": self.ip_usr,
             "txn": txn_id,
         }
+        # Production Vayana GSP calls carry the client identifier headers;
+        # sent only when configured so the sandbox flow stays unchanged.
+        if self.client_id:
+            headers["clientid"] = self.client_id
+        if self.client_secret:
+            headers["client-secret"] = self.client_secret
+        return headers
 
     def _authed_headers(self, txn_id: str, action: str, gstin: str) -> dict:
         """Headers for authenticated calls (adds auth-token/username/gstin)."""
@@ -393,7 +434,7 @@ class VanayaClient:
                 response = requests.get(url, params=params, headers=headers, timeout=self.timeout)
             elif method.lower() == "put":
                 response = requests.put(
-                    url, json=payload or {}, headers=headers, timeout=self.timeout
+                    url, json=payload or {}, params=params, headers=headers, timeout=self.timeout
                 )
             else:
                 response = requests.post(
@@ -581,6 +622,7 @@ class VanayaClient:
                 "put",
                 path,
                 action,
+                params=kwargs.get("params") if "params" in kwargs else None,
                 payload=payload or {},
                 extra_headers=kwargs.get("extra_headers") if "extra_headers" in kwargs else None,
             )
@@ -624,13 +666,32 @@ class VanayaClient:
         payload.setdefault("gstin", self.gstin)
         return self.post(RETURNS_PATH, payload["action"], payload=payload)
 
-    def gstr_get(
-        self, return_type: str, ret_period: str | None = None, gstin: str | None = None, **params
-    ) -> dict:
-        """Section GET of a GSTR return (``/taxpayerapi/v2.2/returns/<type>``).
+    def gstr_path(self, return_type: str, version: str | None = None) -> str:
+        """Return the GSTN returns path for a return type.
 
-        ``params`` are the GSTN section query values (e.g. ``ctin`` for b2b or
-        ``doc_id`` for doc-wise pulls). ``ret_period`` is sent as a header.
+        ``version`` overrides the per-return-type default from
+        :data:`GSTR_PATH_VERSIONS` (fallback ``v2.2`` on this gateway), so any
+        route can target the official production contract version for its type.
+        """
+        version = version or GSTR_PATH_VERSIONS.get(return_type, "v2.2")
+        return f"/gus/taxpayerapi/{version}/returns/{return_type}"
+
+    def gstr_get(
+        self,
+        return_type: str,
+        ret_period: str | None = None,
+        gstin: str | None = None,
+        version: str | None = None,
+        **params,
+    ) -> dict:
+        """Section GET of a GSTR return (``/taxpayerapi/<version>/returns/<type>``).
+
+        ``version`` selects the API version for this route (defaults to the
+        per-return-type map, e.g. ``v5.0`` for GSTR-1). ``params`` are the
+        gateway-whitelisted query values (``gstin``, and the GSTN section
+        filters such as ``section``/``ctin``/``doc_id``). ``ret_period``
+        travels as a header (putting it in the query makes the Vayana gateway
+        reject the request with 400).
         """
         headers = {}
         if ret_period:
@@ -638,7 +699,7 @@ class VanayaClient:
         params = dict(params)
         params.setdefault("gstin", gstin or self.gstin)
         return self.get(
-            f"{GSTR_V2_PATH}/{return_type}",
+            self.gstr_path(return_type, version),
             f"GSTR{return_type}" if not return_type.startswith("gstr") else return_type.upper(),
             params=params,
             extra_headers=headers,
@@ -650,16 +711,25 @@ class VanayaClient:
         ret_period: str,
         payload: dict,
         gstin: str | None = None,
+        version: str | None = None,
+        **query,
     ) -> dict:
-        """Section SAVE of a GSTR return (``PUT /taxpayerapi/v2.2/returns/<type>``).
+        """Section SAVE of a GSTR return (``PUT /taxpayerapi/<version>/returns/<type>``).
 
         ``payload`` is the GSTN section body, e.g. ``{"ctin":..., "inv":[...]}``.
-        Responds with a ``reference_id`` that must be kept for later status/file.
+        ``version`` selects the API version for this route (defaults to the
+        per-return-type map). ``query`` is forwarded verbatim as the URL query
+        string (e.g. ``section``, ``ctin``, ``from``/``to`` document filters).
+        ``ret_period`` is a header. Responds with a ``reference_id`` kept for
+        status/file.
         """
+        params = dict(query)
+        params.setdefault("gstin", gstin or self.gstin)
         return self.put(
-            f"{GSTR_V2_PATH}/{return_type}",
+            self.gstr_path(return_type, version),
             f"GSTR{return_type}" if not return_type.startswith("gstr") else return_type.upper(),
             payload=payload,
+            params=params,
             extra_headers={
                 "ret_period": ret_period,
                 "gstin": gstin or self.gstin,

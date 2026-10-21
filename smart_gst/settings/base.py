@@ -255,6 +255,11 @@ VANAYA_USERNAME = env("VANAYA_USERNAME", default="TN_NT2.21614")
 VANAYA_STATE_CODE = env("VANAYA_STATE_CODE", default="33")
 VANAYA_IP_USR = env("VANAYA_IP_USR", default="137.232.3.35")
 VANAYA_CUST_ID = env("VANAYA_CUST_ID", default="taxmatetest")
+#: Optional Vayana GSP client-id/client-secret. Populated for production
+#: (``api.gsp.vayana.com``) where calls must carry the clientid signature;
+#: the sandbox gateway accepts requests without them, so these default empty.
+VANAYA_CLIENT_ID = env("VANAYA_CLIENT_ID", default="")
+VANAYA_CLIENT_SECRET = env("VANAYA_CLIENT_SECRET", default="")
 VANAYA_DEFAULT_OTP = env("VANAYA_DEFAULT_OTP", default="")
 VANAYA_PRIVATE_KEY_PATH = env(
     "VANAYA_PRIVATE_KEY_PATH",
